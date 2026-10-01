@@ -1,0 +1,28 @@
+# Real personal data and the working database -- never commit these.
+# (This repo's data/rma.db holds BOTH the owner's real HDFC statement under
+# account 8552 AND fictional demo data under DEMO-MEHTA-01 -- the whole file
+# is excluded regardless, since it contains real personal financial data.)
+data/*.xls
+data/*.xlsx
+data/*.db
+data/*.db-journal
+
+# Logs
+logs/*.log*
+
+# Secrets -- bearer tokens, API keys, etc. must never live in a tracked file.
+.env
+.env.*
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+*.egg-info/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db

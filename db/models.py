@@ -1,0 +1,267 @@
+"""SQLAlchemy ORM models for the account statement database.
+
+Two tables:
+  accounts     - one row per bank account (keyed by account_number).
+  transactions - one row per statement line, FK'd to accounts.
+
+Money columns use Numeric (fixed-point), never Float, to avoid rounding
+drift on currency values.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    account_number: Mapped[str] = mapped_column(String(34), primary_key=True)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        back_populates="account", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Account {self.account_number}>"
+
+
+class Transaction(Base):
+    """A statement line.
+
+    Two kinds of rows share this table: plain bank-narration transactions
+    (UPI/IMPS/ACH, `card_id` NULL) and debit-card transactions (`card_id` set,
+    plus the forex/merchant columns populated when applicable). They share it
+    because a debit card spend hits the same account balance this table
+    already tracks via `closing_balance` — a credit card, which does not,
+    never gets rows here (see `CardApplication` instead).
+    """
+
+    __tablename__ = "transactions"
+    __table_args__ = (
+        # Guards against re-importing the same statement twice.
+        UniqueConstraint("account_number", "reference_no", "txn_date", name="uq_txn_dedup"),
+        Index("ix_txn_account_date", "account_number", "txn_date"),
+        Index("ix_txn_card_date", "card_id", "txn_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_number: Mapped[str] = mapped_column(ForeignKey("accounts.account_number"), nullable=False)
+    txn_date: Mapped[date] = mapped_column(Date, nullable=False)
+    value_date: Mapped[date] = mapped_column(Date, nullable=False)
+    narration: Mapped[str] = mapped_column(String(500), nullable=False)
+    reference_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    withdrawal_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    deposit_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    closing_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # --- Card / forex / merchant enrichment (all nullable: only populated
+    # for debit-card rows; plain bank-narration rows leave these all NULL) ---
+    card_id: Mapped[int | None] = mapped_column(ForeignKey("cards.id"), nullable=True)
+    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchants.id"), nullable=True)
+    txn_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    txn_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
+    forex_markup_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    forex_markup_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    gst_on_markup: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    mcc: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    account: Mapped[Account] = relationship(back_populates="transactions")
+    card: Mapped["Card | None"] = relationship()
+    merchant: Mapped["Merchant | None"] = relationship()
+
+    def __repr__(self) -> str:
+        return (
+            f"<Transaction id={self.id} account={self.account_number} "
+            f"date={self.txn_date} balance={self.closing_balance}>"
+        )
+
+
+class CardProduct(Base):
+    """Card catalogue entry (one row per product, e.g. 'Global Elite Zero Forex Card').
+
+    Shared by debit and credit products. `reward_transfer_partners` is stored
+    as a JSON-encoded string (SQLite has no native JSON type) — decode/encode
+    at the repository boundary so callers only ever see a `list[str]`.
+    """
+
+    __tablename__ = "card_products"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    network: Mapped[str] = mapped_column(String(20), nullable=False)
+    card_type: Mapped[str] = mapped_column(String(10), nullable=False)  # "debit" | "credit"
+    forex_markup_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    joining_fee: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    annual_fee: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    lounge_visits_domestic_per_year: Mapped[int | None] = mapped_column(nullable=True)
+    lounge_visits_international_per_year: Mapped[int | None] = mapped_column(nullable=True)
+    guest_visits_per_year: Mapped[int | None] = mapped_column(nullable=True)
+    reward_transfer_partners: Mapped[str | None] = mapped_column(Text, nullable=True)
+    min_relationship_tier_for_discount: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    relationship_discount_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<CardProduct id={self.id} name={self.name!r} type={self.card_type}>"
+
+
+class Card(Base):
+    """An issued card instance linked to an account.
+
+    Only debit cards get transaction history in this system (see
+    `Transaction.card_id`) — credit cards are represented purely via
+    `CardApplication` until/unless a future step needs their own ledger.
+    """
+
+    __tablename__ = "cards"
+    __table_args__ = (
+        UniqueConstraint("account_number", "last4", "network", name="uq_card_identity"),
+        Index("ix_cards_account_status", "account_number", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_number: Mapped[str] = mapped_column(ForeignKey("accounts.account_number"), nullable=False)
+    card_product_id: Mapped[int] = mapped_column(ForeignKey("card_products.id"), nullable=False)
+    last4: Mapped[str] = mapped_column(String(4), nullable=False)
+    network: Mapped[str] = mapped_column(String(20), nullable=False)
+    card_type: Mapped[str] = mapped_column(String(10), nullable=False)  # must match card_products.card_type
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    issued_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    account: Mapped[Account] = relationship()
+    card_product: Mapped[CardProduct] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Card id={self.id} account={self.account_number} last4={self.last4}>"
+
+
+class Merchant(Base):
+    """Canonical merchant, resolved from one or more raw statement descriptors."""
+
+    __tablename__ = "merchants"
+    __table_args__ = (UniqueConstraint("brand_name", "city", name="uq_merchant_identity"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    brand_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    mcc: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sub_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    associated_property: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<Merchant id={self.id} brand={self.brand_name!r}>"
+
+
+class MerchantAlias(Base):
+    """A raw statement descriptor (or normalized pattern) mapped to a canonical merchant."""
+
+    __tablename__ = "merchant_aliases"
+    __table_args__ = (Index("ix_alias_pattern", "raw_pattern"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id"), nullable=False)
+    raw_pattern: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    match_type: Mapped[str] = mapped_column(String(20), nullable=False, default="exact")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    merchant: Mapped[Merchant] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<MerchantAlias id={self.id} pattern={self.raw_pattern!r} -> merchant_id={self.merchant_id}>"
+
+
+class Customer(Base):
+    """Minimal RM-facing customer profile — one row per account, for this demo's scope."""
+
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_number: Mapped[str] = mapped_column(
+        ForeignKey("accounts.account_number"), nullable=False, unique=True
+    )
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    registered_email: Mapped[str] = mapped_column(String(120), nullable=False)
+    alt_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    relationship_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="STANDARD")
+    delivery_address_office: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    delivery_address_home: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    preferred_delivery_address_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    account: Mapped[Account] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Customer id={self.id} account={self.account_number} name={self.full_name!r}>"
+
+
+class Dispute(Base):
+    """A customer-raised dispute against a transaction (raised -> withdrawn)."""
+
+    __tablename__ = "disputes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN")  # OPEN | WITHDRAWN
+    reason: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    raised_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    transaction: Mapped[Transaction] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Dispute id={self.id} transaction_id={self.transaction_id} status={self.status}>"
+
+
+class CardApplication(Base):
+    """A submitted application for a card product (typically a credit card upgrade)."""
+
+    __tablename__ = "card_applications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    card_product_id: Mapped[int] = mapped_column(ForeignKey("card_products.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUBMITTED")
+    applied_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    discount_pct_applied: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    fee_charged: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # Snapshot, not a live FK to Customer's address fields — later preference
+    # changes must not rewrite what was actually submitted on this application.
+    delivery_address: Mapped[str | None] = mapped_column(String(250), nullable=True)
+
+    customer: Mapped[Customer] = relationship()
+    card_product: Mapped[CardProduct] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<CardApplication id={self.id} customer_id={self.customer_id} status={self.status}>"

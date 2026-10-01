@@ -1,0 +1,15 @@
+[Unit]
+Description=RMA MCP Server (Digital RM Twin demo)
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/rma
+EnvironmentFile=/home/ec2-user/rma/.env
+ExecStart=/home/ec2-user/rma/venv/bin/python -m mcp_server.server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

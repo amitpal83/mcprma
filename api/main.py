@@ -6,12 +6,13 @@ Then browse http://127.0.0.1:8000/docs for interactive API docs.
 """
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from api.dependencies import get_db
@@ -64,6 +65,23 @@ from db.session import init_db
 
 configure_logging()
 
+# Shared-secret bearer token for remote (e.g. EC2) exposure -- mirrors the
+# same approach used for the MCP server (mcp_server/server.py). Defaults to
+# the same token as the MCP server (MCP_BEARER_TOKEN) so one value in .env
+# protects both services; set API_BEARER_TOKEN explicitly if you ever want
+# them different. Unset entirely = no auth layer, which is fine for
+# 127.0.0.1-only local dev but must be set before this is reachable from
+# outside the box, since some of these routes can serve the real (not demo)
+# account's data.
+API_BEARER_TOKEN = os.environ.get("API_BEARER_TOKEN") or os.environ.get("MCP_BEARER_TOKEN")
+
+
+def require_bearer_token(authorization: str | None = Header(default=None)) -> None:
+    if API_BEARER_TOKEN is None:
+        return
+    if authorization != f"Bearer {API_BEARER_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -76,6 +94,7 @@ app = FastAPI(
     description="Read-only access to imported account statement transactions.",
     version="1.0.0",
     lifespan=lifespan,
+    dependencies=[Depends(require_bearer_token)],
 )
 
 

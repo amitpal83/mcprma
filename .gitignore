@@ -15,6 +15,10 @@ logs/*.log*
 .env.*
 *.pem
 
+# Personal scratch script with a hardcoded real bearer token -- never commit.
+# Use mcp_tool_examples.py instead, which reads the token from an env var.
+test_mcp.py
+
 # Python
 __pycache__/
 *.pyc

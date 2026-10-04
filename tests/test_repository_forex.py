@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.repository.cards import (
     CardNotFoundError,
+    InvalidAmountRangeError,
     get_card_category_breakdown,
     get_card_forex_summary,
     search_card_transactions,
@@ -168,6 +169,23 @@ def test_search_invalid_date_range_raises(seeded_session_factory):
     with factory() as session:
         with pytest.raises(InvalidDateRangeError):
             search_card_transactions(session, card_id, from_date=date(2026, 12, 31), to_date=date(2026, 1, 1))
+
+
+def test_search_invalid_amount_range_raises(seeded_session_factory):
+    """amount_min > amount_max previously matched nothing silently instead of
+    raising -- a reversed range is a caller mistake, not a legitimate 'no
+    transactions in this range' result."""
+    factory, card_id = seeded_session_factory
+    with factory() as session:
+        with pytest.raises(InvalidAmountRangeError):
+            search_card_transactions(
+                session,
+                card_id,
+                from_date=date(2026, 1, 1),
+                to_date=date(2026, 12, 31),
+                amount_min=Decimal("39000"),
+                amount_max=Decimal("21000"),
+            )
 
 
 def test_forex_summary_totals_trailing_365_days(seeded_session_factory):

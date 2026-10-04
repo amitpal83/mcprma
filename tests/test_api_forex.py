@@ -118,6 +118,20 @@ def test_search_card_transactions_invalid_range_returns_400(client):
     assert response.status_code == 400
 
 
+def test_search_card_transactions_invalid_amount_range_returns_400(client):
+    test_client, card_id = client
+    response = test_client.get(
+        f"/cards/{card_id}/transactions",
+        params={
+            "from_date": "2026-01-01",
+            "to_date": "2026-12-31",
+            "amount_min": "39000",
+            "amount_max": "21000",
+        },
+    )
+    assert response.status_code == 400
+
+
 def test_forex_summary(client):
     test_client, card_id = client
     response = test_client.get(f"/cards/{card_id}/forex-summary", params={"as_of_date": AS_OF})

@@ -41,6 +41,7 @@ from api.repository import (
     DisputeNotFoundError,
     DisputeNotOpenError,
     DuplicateApplicationError,
+    InvalidAmountRangeError,
     InvalidDateRangeError,
     InvalidDeliveryAddressTypeError,
     NoEligibleCardProductError,
@@ -163,7 +164,7 @@ def fetch_account_transactions(
 
 
 @mcp.tool()
-def get_account_txn_details(account_number: str, from_date: str, to_date: str) -> list[dict]:
+def get_account_txn_details(account_number: str, from_date: str, to_date: str) -> dict[str, Any]:
     """Get every statement line for an account within an inclusive date range.
 
     Includes both plain bank-narration rows (UPI/IMPS/ACH) and debit-card
@@ -177,22 +178,24 @@ def get_account_txn_details(account_number: str, from_date: str, to_date: str) -
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
 
     Returns:
-        A list of transaction objects ordered oldest-first, each with: id,
-        account_number, txn_date, value_date, narration (raw statement
-        descriptor), reference_no, withdrawal_amount/deposit_amount (INR),
-        closing_balance (INR, running balance after this line), card_id
-        (set only on debit-card rows), merchant_id (set only when the
-        narration resolved to a canonical merchant), category, and a set of
-        forex fields -- txn_currency, txn_amount, exchange_rate,
-        forex_markup_pct, forex_markup_amount, gst_on_markup -- all null
-        unless this was a foreign-currency card spend.
+        {"result": [...]} -- a list of transaction objects ordered
+        oldest-first, each with: id, account_number, txn_date, value_date,
+        narration (raw statement descriptor), reference_no,
+        withdrawal_amount/deposit_amount (INR), closing_balance (INR,
+        running balance after this line), card_id (set only on debit-card
+        rows), merchant_id (set only when the narration resolved to a
+        canonical merchant), category, and a set of forex fields --
+        txn_currency, txn_amount, exchange_rate, forex_markup_pct,
+        forex_markup_amount, gst_on_markup -- all null unless this was a
+        foreign-currency card spend. `result` is `[]`, not an error, when
+        nothing matches.
 
     Raises:
         ToolError: account_number doesn't exist; from_date is after to_date;
             or either date isn't a valid "YYYY-MM-DD" string.
     """
     logger.info("MCP tool call: get_account_txn_details(%s, %s, %s)", account_number, from_date, to_date)
-    return fetch_account_transactions(account_number, from_date, to_date)
+    return {"result": fetch_account_transactions(account_number, from_date, to_date)}
 
 
 def fetch_cards_for_account(
@@ -210,26 +213,26 @@ def fetch_cards_for_account(
 
 
 @mcp.tool()
-def list_account_cards(account_number: str) -> list[dict]:
+def list_account_cards(account_number: str) -> dict[str, Any]:
     """List all cards (debit and/or credit) linked to an account.
 
     Args:
         account_number: The account number to look up, e.g. "8552".
 
     Returns:
-        A list of card objects, each with: id (the internal card id,
-        returned for reference only -- every other tool is account-scoped
-        and resolves its own cards internally), account_number,
-        card_product_id (FK into the catalogue -- see get_card_product),
-        last4, network (e.g. "Visa"), card_type ("debit"/"credit"), status
-        (e.g. "active"), issued_at, created_at. Empty list if the account
-        has no cards.
+        {"result": [...]} -- a list of card objects, each with: id (the
+        internal card id, returned for reference only -- every other tool is
+        account-scoped and resolves its own cards internally),
+        account_number, card_product_id (FK into the catalogue -- see
+        get_card_product), last4, network (e.g. "Visa"), card_type
+        ("debit"/"credit"), status (e.g. "active"), issued_at, created_at.
+        `result` is `[]`, not an error, if the account has no cards.
 
     Raises:
         ToolError: account_number doesn't exist.
     """
     logger.info("MCP tool call: list_account_cards(%s)", account_number)
-    return fetch_cards_for_account(account_number)
+    return {"result": fetch_cards_for_account(account_number)}
 
 
 def fetch_card_products(
@@ -244,7 +247,7 @@ def fetch_card_products(
 
 
 @mcp.tool()
-def list_card_products(card_type: str | None = None, active_only: bool = True) -> list[dict]:
+def list_card_products(card_type: str | None = None, active_only: bool = True) -> dict[str, Any]:
     """List the card product catalogue (what a customer could be issued or upgraded to).
 
     Args:
@@ -252,23 +255,24 @@ def list_card_products(card_type: str | None = None, active_only: bool = True) -
         active_only: If true (default), only currently offered products are returned.
 
     Returns:
-        A list of card-product objects, each with: id, external_product_id
-        (the catalogue source's own id, e.g. "prod-2", or null if this
-        product predates the catalogue), name, network, card_type,
-        forex_markup_pct, forex_enabled (whether it carries forex markup at
-        all), joining_fee, annual_fee, lounge_visits_domestic_per_year /
-        lounge_visits_international_per_year (null means unlimited, not
-        "not applicable"), guest_visits_per_year, product_rewards_enabled,
-        reward_transfer_partners (list of loyalty programs, [] if none),
-        key_features (list of marketing bullet points), eligibility_criteria
-        (list of requirements to qualify), min_relationship_tier_for_discount
-        / relationship_discount_pct (a joining-fee discount a customer only
-        gets if their relationship_tier -- see get_customer_profile -- meets
-        this minimum; see get_account_recommendation for how that's applied),
-        is_active, created_at.
+        {"result": [...]} -- a list of card-product objects, each with: id,
+        external_product_id (the catalogue source's own id, e.g. "prod-2",
+        or null if this product predates the catalogue), name, network,
+        card_type, forex_markup_pct, forex_enabled (whether it carries forex
+        markup at all), joining_fee, annual_fee,
+        lounge_visits_domestic_per_year / lounge_visits_international_per_year
+        (null means unlimited, not "not applicable"), guest_visits_per_year,
+        product_rewards_enabled, reward_transfer_partners (list of loyalty
+        programs, [] if none), key_features (list of marketing bullet
+        points), eligibility_criteria (list of requirements to qualify),
+        min_relationship_tier_for_discount / relationship_discount_pct (a
+        joining-fee discount a customer only gets if their relationship_tier
+        -- see get_customer_profile -- meets this minimum; see
+        get_account_recommendation for how that's applied), is_active,
+        created_at.
     """
     logger.info("MCP tool call: list_card_products(%s, %s)", card_type, active_only)
-    return fetch_card_products(card_type, active_only)
+    return {"result": fetch_card_products(card_type, active_only)}
 
 
 def fetch_card_product(card_product_id: int, session_factory: sessionmaker | None = None) -> dict:
@@ -339,7 +343,7 @@ def fetch_account_card_transactions(
                         merchant_text=merchant_text,
                     )
                 )
-            except InvalidDateRangeError as exc:
+            except (InvalidDateRangeError, InvalidAmountRangeError) as exc:
                 raise ToolError(str(exc)) from exc
 
         transactions.sort(key=lambda txn: (txn.txn_date, txn.id))
@@ -354,7 +358,7 @@ def search_account_transactions(
     amount_min: str | None = None,
     amount_max: str | None = None,
     merchant_text: str | None = None,
-) -> list[dict]:
+) -> dict[str, Any]:
     """Search an account's card transactions by date range, optional amount range, and merchant text.
 
     Searches across every card linked to the account (merged and re-sorted
@@ -380,20 +384,26 @@ def search_account_transactions(
             can't be resolved.
 
     Returns:
-        A list of transaction objects (same shape as get_account_txn_details),
-        ordered oldest-first across all of the account's cards. Empty list
-        if nothing matches, including if the account has no cards.
+        {"result": [...]} -- a list of transaction objects (same shape as
+        get_account_txn_details), ordered oldest-first across all of the
+        account's cards. `result` is `[]`, not an error, when nothing
+        matches (including when the account has no cards) -- an empty
+        result means "no transactions found", not a failed search.
 
     Raises:
         ToolError: account_number doesn't exist; from_date is after to_date;
-            or a date/amount argument isn't a valid "YYYY-MM-DD" date /
-            decimal number string.
+            amount_min is greater than amount_max; or a date/amount argument
+            isn't a valid "YYYY-MM-DD" date / decimal number string.
     """
     logger.info(
         "MCP tool call: search_account_transactions(%s, %s, %s, %s, %s, %r)",
         account_number, from_date, to_date, amount_min, amount_max, merchant_text,
     )
-    return fetch_account_card_transactions(account_number, from_date, to_date, amount_min, amount_max, merchant_text)
+    return {
+        "result": fetch_account_card_transactions(
+            account_number, from_date, to_date, amount_min, amount_max, merchant_text
+        )
+    }
 
 
 def fetch_account_forex_summary(
@@ -509,7 +519,7 @@ def fetch_account_category_breakdown(
 
 
 @mcp.tool()
-def get_account_category_breakdown(account_number: str, from_date: str, to_date: str) -> list[dict]:
+def get_account_category_breakdown(account_number: str, from_date: str, to_date: str) -> dict[str, Any]:
     """Group an account's spend by category (e.g. Dining, Travel, Hotel, Shopping) over a date range.
 
     Aggregates across every card linked to the account. Only counts rows
@@ -522,17 +532,18 @@ def get_account_category_breakdown(account_number: str, from_date: str, to_date:
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
 
     Returns:
-        A list of objects, one per distinct category present in the range
-        across all of the account's cards: category, total_amount (INR,
-        summed), transaction_count. Empty list if there's no spend in the
-        range, including if the account has no cards.
+        {"result": [...]} -- a list of objects, one per distinct category
+        present in the range across all of the account's cards: category,
+        total_amount (INR, summed), transaction_count. `result` is `[]`, not
+        an error, if there's no spend in the range (including if the account
+        has no cards).
 
     Raises:
         ToolError: account_number doesn't exist, or from_date is after
             to_date, or either date isn't a valid "YYYY-MM-DD" string.
     """
     logger.info("MCP tool call: get_account_category_breakdown(%s, %s, %s)", account_number, from_date, to_date)
-    return fetch_account_category_breakdown(account_number, from_date, to_date)
+    return {"result": fetch_account_category_breakdown(account_number, from_date, to_date)}
 
 
 def fetch_customer_by_account(account_number: str, session_factory: sessionmaker | None = None) -> dict[str, Any]:

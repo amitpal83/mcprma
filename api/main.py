@@ -27,6 +27,7 @@ from api.repository import (
     DisputeNotFoundError,
     DisputeNotOpenError,
     DuplicateApplicationError,
+    InvalidAmountRangeError,
     InvalidDateRangeError,
     InvalidDeliveryAddressTypeError,
     NoEligibleCardProductError,
@@ -180,7 +181,7 @@ def read_card_transactions(
         )
     except CardNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except InvalidDateRangeError as exc:
+    except (InvalidDateRangeError, InvalidAmountRangeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return [TransactionOut.model_validate(txn) for txn in transactions]

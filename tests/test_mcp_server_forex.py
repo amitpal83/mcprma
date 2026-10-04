@@ -182,6 +182,22 @@ def test_fetch_account_card_transactions_bad_amount_raises_tool_error(seeded_ses
         )
 
 
+def test_fetch_account_card_transactions_reversed_amount_range_raises_tool_error(seeded_session_factory):
+    """amount_min > amount_max previously matched nothing silently instead of
+    raising -- e.g. a voice agent passing ("39000", "21000") for "around
+    30000" got a confusing empty result instead of a clear error."""
+    factory = seeded_session_factory
+    with pytest.raises(ToolError, match="amount_min"):
+        fetch_account_card_transactions(
+            ACCOUNT_NUMBER,
+            "2026-01-01",
+            "2026-12-31",
+            amount_min="39000",
+            amount_max="21000",
+            session_factory=factory,
+        )
+
+
 def test_fetch_account_card_transactions_spans_every_card_on_account(seeded_two_card_session_factory):
     rows = fetch_account_card_transactions(
         ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=seeded_two_card_session_factory
@@ -246,6 +262,37 @@ def test_mcp_tool_search_account_transactions_end_to_end(seeded_session_factory,
     assert rows[0]["reference_no"] == "SEED-FX-001"
 
 
+def test_mcp_tool_search_account_transactions_empty_match_still_produces_content(seeded_session_factory, monkeypatch):
+    """Regression test: a list[dict]-returning MCP tool that finds zero
+    matches used to produce a CallToolResult with content=[] (no text
+    blocks), even though structured_content correctly held {"result": []}.
+    Some MCP clients (e.g. LiveKit's default tool-result resolver) only read
+    `content` and treat an empty one as "the tool produced nothing",
+    surfacing a confusing error for a legitimate "no matches" answer. The
+    fix wraps this tool's return as a dict so it always emits exactly one
+    text content block, empty result or not.
+    """
+    factory = seeded_session_factory
+    monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
+
+    result = asyncio.run(
+        mcp.call_tool(
+            "search_account_transactions",
+            {
+                "account_number": ACCOUNT_NUMBER,
+                "from_date": "2026-08-01",
+                "to_date": "2026-08-31",
+                "amount_min": "39000",
+                "amount_max": "39000",
+            },
+        )
+    )
+
+    assert result.is_error is False
+    assert result.structured_content == {"result": []}
+    assert len(result.content) >= 1
+
+
 def test_mcp_tool_get_account_forex_summary_end_to_end(seeded_session_factory, monkeypatch):
     factory = seeded_session_factory
     monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
@@ -266,3 +313,22 @@ def test_mcp_tool_get_account_forex_summary_unknown_account_raises_tool_error(se
 
     with pytest.raises(ToolError):
         asyncio.run(mcp.call_tool("get_account_forex_summary", {"account_number": "unknown"}))
+
+
+def test_mcp_tool_search_account_transactions_reversed_amount_range_is_error(seeded_session_factory, monkeypatch):
+    factory = seeded_session_factory
+    monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
+
+    with pytest.raises(ToolError, match="amount_min"):
+        asyncio.run(
+            mcp.call_tool(
+                "search_account_transactions",
+                {
+                    "account_number": ACCOUNT_NUMBER,
+                    "from_date": "2026-01-01",
+                    "to_date": "2026-12-31",
+                    "amount_min": "39000",
+                    "amount_max": "21000",
+                },
+            )
+        )

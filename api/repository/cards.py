@@ -51,6 +51,13 @@ class CardProductNotFoundError(Exception):
         super().__init__(f"Card product not found: {card_product_id}")
 
 
+class InvalidAmountRangeError(Exception):
+    def __init__(self, amount_min: Decimal, amount_max: Decimal) -> None:
+        self.amount_min = amount_min
+        self.amount_max = amount_max
+        super().__init__(f"amount_min ({amount_min}) must not be greater than amount_max ({amount_max})")
+
+
 def decode_reward_transfer_partners(raw: str | None) -> list[str]:
     """Decode CardProduct.reward_transfer_partners (JSON text) into a list.
 
@@ -179,10 +186,13 @@ def search_card_transactions(
     Raises:
         CardNotFoundError: if card_id doesn't exist.
         InvalidDateRangeError: if from_date is after to_date.
+        InvalidAmountRangeError: if amount_min is greater than amount_max.
     """
     get_card(session, card_id)
     if from_date > to_date:
         raise InvalidDateRangeError(from_date, to_date)
+    if amount_min is not None and amount_max is not None and amount_min > amount_max:
+        raise InvalidAmountRangeError(amount_min, amount_max)
 
     query = session.query(Transaction).filter(
         Transaction.card_id == card_id,

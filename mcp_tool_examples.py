@@ -9,7 +9,8 @@ set that up once per process, then reuse the same session for every call.
 Two gotchas in how results come back (confirmed against the real server):
   - A tool that returns a LIST (e.g. list_account_cards) wraps it:
         result.structured_content == {"result": [ ... ]}
-  - A tool that returns a single OBJECT (e.g. get_card) does NOT wrap it:
+  - A tool that returns a single OBJECT (e.g. get_account_recommendation) does
+    NOT wrap it:
         result.structured_content == { ...the object's fields... }
   This is an MCP SDK convention (list-shaped return types get wrapped under
   "result", object-shaped ones don't), not something specific to this
@@ -63,12 +64,6 @@ async def list_account_cards(session: ClientSession, account_number: str):
     return _unwrap(result)
 
 
-async def get_card(session: ClientSession, card_id: int):
-    """Get a single card by its internal id."""
-    result = await session.call_tool("get_card", {"card_id": card_id})
-    return _unwrap(result)
-
-
 async def list_card_products(session: ClientSession, card_type: str | None = None, active_only: bool = True):
     """List the card product catalogue. card_type is optional: "debit" or "credit"."""
     args = {"active_only": active_only}
@@ -86,44 +81,48 @@ async def get_card_product(session: ClientSession, card_product_id: int):
 
 # --- Card-transaction search, forex summary, category breakdown ------------
 
-async def search_card_transactions(
+async def search_account_transactions(
     session: ClientSession,
-    card_id: int,
+    account_number: str,
     from_date: str,
     to_date: str,
     amount_min: str | None = None,
     amount_max: str | None = None,
     merchant_text: str | None = None,
 ):
-    """Search a card's transactions. amount_min/amount_max are decimal
-    strings (e.g. "340.00"); merchant_text is free text, e.g. "Hilton".
+    """Search an account's card transactions, across every card it has.
+    amount_min/amount_max are decimal strings (e.g. "340.00"); merchant_text
+    is free text, e.g. "Hilton".
     """
-    args = {"card_id": card_id, "from_date": from_date, "to_date": to_date}
+    args = {"account_number": account_number, "from_date": from_date, "to_date": to_date}
     if amount_min is not None:
         args["amount_min"] = amount_min
     if amount_max is not None:
         args["amount_max"] = amount_max
     if merchant_text is not None:
         args["merchant_text"] = merchant_text
-    result = await session.call_tool("search_card_transactions", args)
+    result = await session.call_tool("search_account_transactions", args)
     return _unwrap(result)
 
 
-async def get_card_forex_summary(session: ClientSession, card_id: int, as_of_date: str | None = None):
-    """Trailing-365-day forex spend + markup/GST summary for a card.
-    as_of_date is optional (defaults to today server-side).
+async def get_account_forex_summary(session: ClientSession, account_number: str, as_of_date: str | None = None):
+    """Trailing-365-day forex spend + markup/GST summary for an account,
+    aggregated across every card it has. as_of_date is optional (defaults to
+    today server-side).
     """
-    args = {"card_id": card_id}
+    args = {"account_number": account_number}
     if as_of_date is not None:
         args["as_of_date"] = as_of_date
-    result = await session.call_tool("get_card_forex_summary", args)
+    result = await session.call_tool("get_account_forex_summary", args)
     return _unwrap(result)
 
 
-async def get_card_category_breakdown(session: ClientSession, card_id: int, from_date: str, to_date: str):
-    """Spend grouped by category (Travel, Dining, ...) over a date range."""
+async def get_account_category_breakdown(session: ClientSession, account_number: str, from_date: str, to_date: str):
+    """Spend grouped by category (Travel, Dining, ...) over a date range,
+    aggregated across every card the account has."""
     result = await session.call_tool(
-        "get_card_category_breakdown", {"card_id": card_id, "from_date": from_date, "to_date": to_date}
+        "get_account_category_breakdown",
+        {"account_number": account_number, "from_date": from_date, "to_date": to_date},
     )
     return _unwrap(result)
 
@@ -164,9 +163,10 @@ async def withdraw_dispute(session: ClientSession, dispute_id: int):
 
 # --- Recommendation -----------------------------------------------------------
 
-async def get_card_recommendation(session: ClientSession, card_id: int):
-    """Recommend a lower-forex-markup card upgrade + projected annual savings."""
-    result = await session.call_tool("get_card_recommendation", {"card_id": card_id})
+async def get_account_recommendation(session: ClientSession, account_number: str):
+    """Recommend a lower-forex-markup card upgrade + projected annual savings
+    for an account (resolves the account's own card internally)."""
+    result = await session.call_tool("get_account_recommendation", {"account_number": account_number})
     return _unwrap(result)
 
 
@@ -225,7 +225,7 @@ async def main() -> None:
 
             print(await list_all_tools(session))
             print(await list_account_cards(session, "ACC101"))
-            print(await get_card_forex_summary(session, card_id=1))
+            print(await get_account_forex_summary(session, account_number="ACC101"))
 
 
 if __name__ == "__main__":

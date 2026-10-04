@@ -1,4 +1,5 @@
-"""Tests for the card recommendation MCP tool (Step 7)."""
+"""Tests for the account recommendation MCP tool (Step 7; renamed from
+get_card_recommendation to get_account_recommendation in a later pass)."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 import mcp_server.server as mcp_server_module
 from db.models import Account, Base, Card, CardProduct, Customer, Transaction
-from mcp_server.server import fetch_card_recommendation, mcp
+from mcp_server.server import fetch_account_recommendation, mcp
 
 ACCOUNT_NUMBER = "8552"
 
@@ -78,9 +79,9 @@ def seeded_session_factory(tmp_path):
     return factory, card.id
 
 
-def test_fetch_card_recommendation(seeded_session_factory):
-    factory, card_id = seeded_session_factory
-    recommendation = fetch_card_recommendation(card_id, session_factory=factory)
+def test_fetch_account_recommendation(seeded_session_factory):
+    factory, _ = seeded_session_factory
+    recommendation = fetch_account_recommendation(ACCOUNT_NUMBER, session_factory=factory)
     assert recommendation["recommended_product"]["name"] == "Global Elite Zero Forex Card"
     assert recommendation["discount_pct_applied"] == "25.00"
     assert recommendation["action_type"] == "cross_sell"
@@ -88,17 +89,33 @@ def test_fetch_card_recommendation(seeded_session_factory):
     assert recommendation["reason"]
 
 
-def test_fetch_card_recommendation_unknown_card_raises_tool_error(seeded_session_factory):
-    factory, _ = seeded_session_factory
-    with pytest.raises(ToolError, match="Card not found"):
-        fetch_card_recommendation(99999, session_factory=factory)
-
-
-def test_mcp_tool_get_card_recommendation_end_to_end(seeded_session_factory, monkeypatch):
+def test_fetch_account_recommendation_resolves_the_account_s_own_card(seeded_session_factory):
     factory, card_id = seeded_session_factory
+    recommendation = fetch_account_recommendation(ACCOUNT_NUMBER, session_factory=factory)
+    assert recommendation["current_card_id"] == card_id
+
+
+def test_fetch_account_recommendation_unknown_account_raises_tool_error(seeded_session_factory):
+    factory, _ = seeded_session_factory
+    with pytest.raises(ToolError, match="Account not found"):
+        fetch_account_recommendation("unknown", session_factory=factory)
+
+
+def test_fetch_account_recommendation_no_cards_raises_tool_error(seeded_session_factory):
+    factory, _ = seeded_session_factory
+    with factory() as session:
+        session.add(Account(account_number="no-cards-acct"))
+        session.commit()
+
+    with pytest.raises(ToolError, match="No card found"):
+        fetch_account_recommendation("no-cards-acct", session_factory=factory)
+
+
+def test_mcp_tool_get_account_recommendation_end_to_end(seeded_session_factory, monkeypatch):
+    factory, _ = seeded_session_factory
     monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
 
-    result = asyncio.run(mcp.call_tool("get_card_recommendation", {"card_id": card_id}))
+    result = asyncio.run(mcp.call_tool("get_account_recommendation", {"account_number": ACCOUNT_NUMBER}))
 
     assert result.is_error is False
     assert result.structured_content["recommended_product"]["name"] == "Global Elite Zero Forex Card"

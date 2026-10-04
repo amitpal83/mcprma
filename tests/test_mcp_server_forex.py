@@ -1,5 +1,9 @@
-"""Tests for the card-transaction search / forex-summary / category-breakdown
-MCP tools (Step 4)."""
+"""Tests for the account-scoped card-transaction search / forex-summary /
+category-breakdown MCP tools: search_account_transactions,
+get_account_forex_summary, get_account_category_breakdown (Step 4; renamed
+from their original card_id-scoped names in a later pass -- each tool
+resolves every card linked to the account internally instead of taking a
+card_id)."""
 from __future__ import annotations
 
 import asyncio
@@ -14,9 +18,9 @@ from sqlalchemy.orm import sessionmaker
 import mcp_server.server as mcp_server_module
 from db.models import Account, Base, Card, CardProduct, Merchant, MerchantAlias, Transaction
 from mcp_server.server import (
-    fetch_card_category_breakdown,
-    fetch_card_forex_summary,
-    fetch_card_transactions,
+    fetch_account_card_transactions,
+    fetch_account_category_breakdown,
+    fetch_account_forex_summary,
     mcp,
 )
 
@@ -81,52 +85,158 @@ def seeded_session_factory(tmp_path):
         session.commit()
         session.refresh(card)
 
-    return factory, card.id
+    return factory
 
 
-def test_fetch_card_transactions_finds_disputed_txn(seeded_session_factory):
-    factory, card_id = seeded_session_factory
-    rows = fetch_card_transactions(
-        card_id, "2026-08-01", "2026-08-31", amount_min="340", amount_max="360", session_factory=factory
+@pytest.fixture
+def seeded_two_card_session_factory(tmp_path):
+    """An account with TWO cards, each with its own forex transaction --
+    exercises the aggregation path these tools now need."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'mcp_forex_two_card_test.db'}")
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    with factory() as session:
+        session.add(Account(account_number=ACCOUNT_NUMBER))
+        debit_product = CardProduct(name="HDFC Debit Card", network="Visa", card_type="debit", forex_markup_pct=3.5)
+        credit_product = CardProduct(name="Travel Credit Card", network="Visa", card_type="credit", forex_markup_pct=2.0)
+        session.add_all([debit_product, credit_product])
+        session.flush()
+
+        debit_card = Card(
+            account_number=ACCOUNT_NUMBER,
+            card_product_id=debit_product.id,
+            last4="4821",
+            network="Visa",
+            card_type="debit",
+        )
+        credit_card = Card(
+            account_number=ACCOUNT_NUMBER,
+            card_product_id=credit_product.id,
+            last4="1234",
+            network="Visa",
+            card_type="credit",
+        )
+        session.add_all([debit_card, credit_card])
+        session.flush()
+
+        session.add_all(
+            [
+                Transaction(
+                    account_number=ACCOUNT_NUMBER,
+                    card_id=debit_card.id,
+                    txn_date=date(2026, 8, 1),
+                    value_date=date(2026, 8, 1),
+                    narration="DEBIT CARD FOREX SPEND",
+                    reference_no="DEBIT-001",
+                    withdrawal_amount=Decimal("10000.00"),
+                    closing_balance=Decimal("90000.00"),
+                    txn_currency="USD",
+                    txn_amount=Decimal("120.00"),
+                    forex_markup_amount=Decimal("350.00"),
+                    gst_on_markup=Decimal("63.00"),
+                    category="Travel",
+                ),
+                Transaction(
+                    account_number=ACCOUNT_NUMBER,
+                    card_id=credit_card.id,
+                    txn_date=date(2026, 8, 5),
+                    value_date=date(2026, 8, 5),
+                    narration="CREDIT CARD FOREX SPEND",
+                    reference_no="CREDIT-001",
+                    withdrawal_amount=Decimal("5000.00"),
+                    closing_balance=Decimal("45000.00"),
+                    txn_currency="USD",
+                    txn_amount=Decimal("60.00"),
+                    forex_markup_amount=Decimal("100.00"),
+                    gst_on_markup=Decimal("18.00"),
+                    category="Travel",
+                ),
+            ]
+        )
+        session.commit()
+
+    return factory
+
+
+def test_fetch_account_card_transactions_finds_disputed_txn(seeded_session_factory):
+    factory = seeded_session_factory
+    rows = fetch_account_card_transactions(
+        ACCOUNT_NUMBER, "2026-08-01", "2026-08-31", amount_min="340", amount_max="360", session_factory=factory
     )
     assert len(rows) == 1
     assert rows[0]["reference_no"] == "SEED-FX-001"
 
 
-def test_fetch_card_transactions_unknown_card_raises_tool_error(seeded_session_factory):
-    factory, _ = seeded_session_factory
-    with pytest.raises(ToolError, match="Card not found"):
-        fetch_card_transactions(99999, "2026-01-01", "2026-12-31", session_factory=factory)
+def test_fetch_account_card_transactions_unknown_account_raises_tool_error(seeded_session_factory):
+    factory = seeded_session_factory
+    with pytest.raises(ToolError, match="Account not found"):
+        fetch_account_card_transactions("unknown", "2026-01-01", "2026-12-31", session_factory=factory)
 
 
-def test_fetch_card_transactions_bad_amount_raises_tool_error(seeded_session_factory):
-    factory, card_id = seeded_session_factory
+def test_fetch_account_card_transactions_bad_amount_raises_tool_error(seeded_session_factory):
+    factory = seeded_session_factory
     with pytest.raises(ToolError, match="decimal number"):
-        fetch_card_transactions(card_id, "2026-01-01", "2026-12-31", amount_min="not-a-number", session_factory=factory)
+        fetch_account_card_transactions(
+            ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", amount_min="not-a-number", session_factory=factory
+        )
 
 
-def test_fetch_card_forex_summary(seeded_session_factory):
-    factory, card_id = seeded_session_factory
-    summary = fetch_card_forex_summary(card_id, AS_OF, session_factory=factory)
+def test_fetch_account_card_transactions_spans_every_card_on_account(seeded_two_card_session_factory):
+    rows = fetch_account_card_transactions(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=seeded_two_card_session_factory
+    )
+    reference_numbers = {row["reference_no"] for row in rows}
+    assert reference_numbers == {"DEBIT-001", "CREDIT-001"}
+
+
+def test_fetch_account_forex_summary(seeded_session_factory):
+    factory = seeded_session_factory
+    summary = fetch_account_forex_summary(ACCOUNT_NUMBER, AS_OF, session_factory=factory)
     assert summary["transaction_count"] == 1
     assert summary["total_forex_spend_inr"] == "32000.00"
 
 
-def test_fetch_card_category_breakdown(seeded_session_factory):
-    factory, card_id = seeded_session_factory
-    rows = fetch_card_category_breakdown(card_id, "2026-01-01", "2026-12-31", session_factory=factory)
+def test_fetch_account_forex_summary_aggregates_every_card_on_account(seeded_two_card_session_factory):
+    summary = fetch_account_forex_summary(
+        ACCOUNT_NUMBER, "2026-09-30", session_factory=seeded_two_card_session_factory
+    )
+    assert summary["transaction_count"] == 2
+    assert summary["total_forex_spend_inr"] == "15000.00"
+    assert summary["total_markup_amount"] == "450.00"
+    assert summary["total_gst_amount"] == "81.00"
+
+
+def test_fetch_account_category_breakdown(seeded_session_factory):
+    factory = seeded_session_factory
+    rows = fetch_account_category_breakdown(ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=factory)
     categories = {row["category"] for row in rows}
     assert categories == {"Travel", "Groceries"}
 
 
-def test_mcp_tool_search_card_transactions_end_to_end(seeded_session_factory, monkeypatch):
-    factory, card_id = seeded_session_factory
+def test_fetch_account_category_breakdown_aggregates_every_card_on_account(seeded_two_card_session_factory):
+    rows = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=seeded_two_card_session_factory
+    )
+    assert len(rows) == 1
+    assert rows[0]["category"] == "Travel"
+    assert rows[0]["total_amount"] == "15000.00"
+    assert rows[0]["transaction_count"] == 2
+
+
+def test_mcp_tool_search_account_transactions_end_to_end(seeded_session_factory, monkeypatch):
+    factory = seeded_session_factory
     monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
 
     result = asyncio.run(
         mcp.call_tool(
-            "search_card_transactions",
-            {"card_id": card_id, "from_date": "2026-08-01", "to_date": "2026-08-31", "merchant_text": "Wisdom Property"},
+            "search_account_transactions",
+            {
+                "account_number": ACCOUNT_NUMBER,
+                "from_date": "2026-08-01",
+                "to_date": "2026-08-31",
+                "merchant_text": "Wisdom Property",
+            },
         )
     )
 
@@ -136,11 +246,13 @@ def test_mcp_tool_search_card_transactions_end_to_end(seeded_session_factory, mo
     assert rows[0]["reference_no"] == "SEED-FX-001"
 
 
-def test_mcp_tool_get_card_forex_summary_end_to_end(seeded_session_factory, monkeypatch):
-    factory, card_id = seeded_session_factory
+def test_mcp_tool_get_account_forex_summary_end_to_end(seeded_session_factory, monkeypatch):
+    factory = seeded_session_factory
     monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
 
-    result = asyncio.run(mcp.call_tool("get_card_forex_summary", {"card_id": card_id, "as_of_date": AS_OF}))
+    result = asyncio.run(
+        mcp.call_tool("get_account_forex_summary", {"account_number": ACCOUNT_NUMBER, "as_of_date": AS_OF})
+    )
 
     assert result.is_error is False
     # dict[str, Any]-returning tools are NOT wrapped under "result" the way
@@ -148,9 +260,9 @@ def test_mcp_tool_get_card_forex_summary_end_to_end(seeded_session_factory, monk
     assert result.structured_content["total_forex_spend_inr"] == "32000.00"
 
 
-def test_mcp_tool_get_card_forex_summary_unknown_card_raises_tool_error(seeded_session_factory, monkeypatch):
-    factory, _ = seeded_session_factory
+def test_mcp_tool_get_account_forex_summary_unknown_account_raises_tool_error(seeded_session_factory, monkeypatch):
+    factory = seeded_session_factory
     monkeypatch.setattr(mcp_server_module, "SessionLocal", factory)
 
     with pytest.raises(ToolError):
-        asyncio.run(mcp.call_tool("get_card_forex_summary", {"card_id": 99999}))
+        asyncio.run(mcp.call_tool("get_account_forex_summary", {"account_number": "unknown"}))

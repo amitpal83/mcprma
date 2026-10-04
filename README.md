@@ -171,14 +171,24 @@ spec with:
 python -c "import json; from api.main import app; json.dump(app.openapi(), open('openapi.json','w'), indent=2)"
 ```
 
-### MCP tools (`mcp_server/server.py`) — one-to-one with the REST routes above
+### MCP tools (`mcp_server/server.py`)
 
-`get_account_txn_details`, `list_account_cards`, `get_card`,
-`list_card_products`, `get_card_product`, `search_card_transactions`,
-`get_card_forex_summary`, `get_card_category_breakdown`,
-`get_customer_profile`, `update_customer_delivery_preference`,
-`create_dispute`, `withdraw_dispute`, `get_card_recommendation`,
+`get_account_txn_details`, `list_account_cards`, `list_card_products`,
+`get_card_product`, `search_account_transactions`, `get_account_forex_summary`,
+`get_account_category_breakdown`, `get_customer_profile`, `get_customer_360`,
+`get_latest_service_request`, `update_customer_delivery_preference`,
+`create_dispute`, `withdraw_dispute`, `get_account_recommendation`,
 `create_card_application`, `get_card_application_status`.
+
+Not one-to-one with the REST routes above: `search_account_transactions`,
+`get_account_forex_summary`, `get_account_category_breakdown`, and
+`get_account_recommendation` are named and scoped by `account_number` here,
+resolving/aggregating across every card on the account internally. Their
+REST equivalents (`/cards/{card_id}/transactions`, `/forex-summary`,
+`/category-breakdown`, `/recommendation`) are still `card_id`-scoped and
+keep their original names. There is also no `get_card` tool — the
+account-scoped `list_account_cards` already returns full card detail, so a
+separate single-card lookup tool would just duplicate it.
 
 Each follows the same two-layer pattern: a transport-independent `fetch_*()`
 function (testable with an injected `session_factory`) plus a thin

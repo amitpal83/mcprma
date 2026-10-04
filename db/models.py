@@ -89,6 +89,14 @@ class Transaction(Base):
     mcc: Mapped[str | None] = mapped_column(String(4), nullable=True)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # --- Statement-line detail sourced from richer transaction feeds (all
+    # nullable: older/plain rows won't have these) ---
+    description: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    kiosk: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    merchant_location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    instrument_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    transaction_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "domestic" | "international"
+
     account: Mapped[Account] = relationship(back_populates="transactions")
     card: Mapped["Card | None"] = relationship()
     merchant: Mapped["Merchant | None"] = relationship()
@@ -101,7 +109,7 @@ class Transaction(Base):
 
 
 class CardProduct(Base):
-    """Card catalogue entry (one row per product, e.g. 'Global Elite Zero Forex Card').
+    """Card catalogue entry (one row per product, e.g. 'Global Elite zero forex markup credit card').
 
     Shared by debit and credit products. `reward_transfer_partners` is stored
     as a JSON-encoded string (SQLite has no native JSON type) — decode/encode
@@ -125,6 +133,13 @@ class CardProduct(Base):
     relationship_discount_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # --- Product-catalogue enrichment (external catalogue id + json-sourced detail) ---
+    external_product_id: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
+    forex_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    product_rewards_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    key_features: Mapped[str | None] = mapped_column(Text, nullable=True)
+    eligibility_criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
         return f"<CardProduct id={self.id} name={self.name!r} type={self.card_type}>"
@@ -152,6 +167,8 @@ class Card(Base):
     card_type: Mapped[str] = mapped_column(String(10), nullable=False)  # must match card_products.card_type
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     issued_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_kyc_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     account: Mapped[Account] = relationship()
@@ -211,6 +228,12 @@ class Customer(Base):
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     registered_email: Mapped[str] = mapped_column(String(120), nullable=False)
     alt_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Kept alongside registered_email/alt_email (which stay in sync with these
+    # for backward compatibility with mask_email/CustomerOut) so the source
+    # json's own field names ("email_work"/"email_personal") are preserved too.
+    email_work: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email_personal: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    onboarding_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     relationship_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="STANDARD")
     delivery_address_office: Mapped[str | None] = mapped_column(String(250), nullable=True)
     delivery_address_home: Mapped[str | None] = mapped_column(String(250), nullable=True)
@@ -265,3 +288,65 @@ class CardApplication(Base):
 
     def __repr__(self) -> str:
         return f"<CardApplication id={self.id} customer_id={self.customer_id} status={self.status}>"
+
+
+class ServiceRequest(Base):
+    """A customer-raised service request (e.g. a statement/document dispatch)."""
+
+    __tablename__ = "service_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
+    service_request_id: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    service_request_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    service_request_date: Mapped[date] = mapped_column(Date, nullable=False)
+    service_request_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    service_request_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    service_request_delivery_address_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    customer: Mapped[Customer] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<ServiceRequest id={self.id} service_request_id={self.service_request_id!r} status={self.service_request_status}>"
+
+
+class Customer360(Base):
+    """Denormalized customer-360 snapshot: identity, addresses, current
+    instruments, latest service request, and next-best-offer, in one place.
+
+    This is a seeded snapshot (no triggers/views exist in this codebase) --
+    it is not kept live-synchronized with `Customer`/`Card`/`ServiceRequest`
+    after it is written. `raw_json` preserves the complete source payload
+    verbatim, alongside queryable columns extracted from it.
+    """
+
+    __tablename__ = "customer_360"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False, unique=True)
+    account_number: Mapped[str] = mapped_column(ForeignKey("accounts.account_number"), nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    onboarding_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    email_work: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email_personal: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    addresses_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_instruments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latest_service_request_id: Mapped[int | None] = mapped_column(ForeignKey("service_requests.id"), nullable=True)
+    next_best_offer_product_external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    next_best_offer_product_id: Mapped[int | None] = mapped_column(ForeignKey("card_products.id"), nullable=True)
+    next_best_offer_action_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    next_best_offer_applicable_discounts: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    next_best_offer_reason: Mapped[str | None] = mapped_column(String(250), nullable=True)
+    raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    customer: Mapped[Customer] = relationship()
+    account: Mapped[Account] = relationship()
+    latest_service_request: Mapped[ServiceRequest | None] = relationship()
+    next_best_offer_product: Mapped[CardProduct | None] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Customer360 id={self.id} customer_id={self.customer_id} account={self.account_number}>"

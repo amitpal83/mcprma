@@ -1,6 +1,6 @@
 # Real personal data and the working database -- never commit these.
 # (This repo's data/rma.db holds BOTH the owner's real HDFC statement under
-# account 8552 AND fictional demo data under DEMO-MEHTA-01 -- the whole file
+# account 8552 AND fictional demo data under ACC101 -- the whole file
 # is excluded regardless, since it contains real personal financial data.)
 data/*.xls
 data/*.xlsx
@@ -15,9 +15,11 @@ logs/*.log*
 .env.*
 *.pem
 
-# Personal scratch script with a hardcoded real bearer token -- never commit.
-# Use mcp_tool_examples.py instead, which reads the token from an env var.
+# Personal scratch script / Postman collection with a hardcoded real bearer
+# token -- never commit. Use mcp_tool_examples.py instead for anything meant
+# to be shared, since it reads the token from an env var.
 test_mcp.py
+postman/
 
 # Python
 __pycache__/

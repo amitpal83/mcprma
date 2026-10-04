@@ -83,6 +83,9 @@ def test_fetch_card_recommendation(seeded_session_factory):
     recommendation = fetch_card_recommendation(card_id, session_factory=factory)
     assert recommendation["recommended_product"]["name"] == "Global Elite Zero Forex Card"
     assert recommendation["discount_pct_applied"] == "25.00"
+    assert recommendation["action_type"] == "cross_sell"
+    assert recommendation["applicable_discounts"] == "25% on joining fee"
+    assert recommendation["reason"]
 
 
 def test_fetch_card_recommendation_unknown_card_raises_tool_error(seeded_session_factory):

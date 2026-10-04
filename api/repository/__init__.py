@@ -13,7 +13,11 @@ from api.repository.cards import (
     CategorySpend,
     ForexSummary,
     NoEligibleCardProductError,
+    decode_eligibility_criteria,
+    decode_key_features,
     decode_reward_transfer_partners,
+    encode_eligibility_criteria,
+    encode_key_features,
     encode_reward_transfer_partners,
     get_card,
     get_card_category_breakdown,
@@ -55,6 +59,14 @@ from api.repository.transactions import (
     InvalidDateRangeError,
     get_account_txn_details,
 )
+from api.repository.service_requests import (
+    ServiceRequestNotFoundError,
+    get_latest_service_request,
+)
+from api.repository.customer_360 import (
+    Customer360NotFoundError,
+    get_customer_360,
+)
 
 __all__ = [
     "AccountNotFoundError",
@@ -69,7 +81,11 @@ __all__ = [
     "CategorySpend",
     "ForexSummary",
     "NoEligibleCardProductError",
+    "decode_eligibility_criteria",
+    "decode_key_features",
     "decode_reward_transfer_partners",
+    "encode_eligibility_criteria",
+    "encode_key_features",
     "encode_reward_transfer_partners",
     "get_card",
     "get_card_forex_summary",
@@ -94,4 +110,8 @@ __all__ = [
     "DuplicateApplicationError",
     "create_card_application",
     "get_card_application_status",
+    "ServiceRequestNotFoundError",
+    "get_latest_service_request",
+    "Customer360NotFoundError",
+    "get_customer_360",
 ]

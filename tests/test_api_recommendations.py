@@ -97,6 +97,9 @@ def test_get_card_recommendation(client):
     body = response.json()
     assert body["recommended_product"]["name"] == "Global Elite Zero Forex Card"
     assert body["discount_pct_applied"] == "25.00"
+    assert body["action_type"] == "cross_sell"
+    assert body["applicable_discounts"] == "25% on joining fee"
+    assert "reason" in body and body["reason"]
 
 
 def test_get_card_recommendation_unknown_card_returns_404(client):

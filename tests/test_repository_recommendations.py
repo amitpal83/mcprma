@@ -140,6 +140,7 @@ def test_discount_applied_for_matching_relationship_tier(seeded_priority_custome
         assert recommendation.discount_pct_applied == Decimal("25.00")
         # 15000 * 0.75 = 11250; 11250 * 1.18 (derived GST rate) = 13275.00
         assert recommendation.net_joining_fee_after_discount == Decimal("13275.00")
+        assert recommendation.applicable_discounts == "25% on joining fee"
 
 
 def test_no_discount_for_non_matching_relationship_tier(seeded_standard_customer):
@@ -149,6 +150,48 @@ def test_no_discount_for_non_matching_relationship_tier(seeded_standard_customer
         assert recommendation.discount_pct_applied is None
         # 15000 * 1.18 = 17700.00, no discount applied
         assert recommendation.net_joining_fee_after_discount == Decimal("17700.00")
+        assert recommendation.applicable_discounts is None
+
+
+def test_action_type_is_cross_sell_from_debit_to_credit(seeded_priority_customer):
+    factory, card_id = seeded_priority_customer
+    with factory() as session:
+        recommendation = recommend_card_upgrade(session, card_id)
+        assert recommendation.action_type == "cross_sell"
+
+
+def test_reason_cites_lower_markup_below_high_spend_threshold(seeded_priority_customer):
+    # Fixture's trailing forex spend (40300.00) is below HIGH_FOREX_SPEND_THRESHOLD_INR (100000).
+    factory, card_id = seeded_priority_customer
+    with factory() as session:
+        recommendation = recommend_card_upgrade(session, card_id)
+        assert "Lower forex markup" in recommendation.reason
+
+
+def test_reason_cites_high_forex_spending_above_threshold(seeded_priority_customer):
+    factory, card_id = seeded_priority_customer
+    with factory() as session:
+        # Push trailing spend above the high-spend threshold.
+        session.add(
+            Transaction(
+                account_number=ACCOUNT_NUMBER,
+                card_id=card_id,
+                txn_date=date.today(),
+                value_date=date.today(),
+                narration="BIG TICKET FOREX SPEND",
+                withdrawal_amount=Decimal("200000.00"),
+                closing_balance=Decimal("50000.00"),
+                txn_currency="USD",
+                txn_amount=Decimal("2400.00"),
+                forex_markup_amount=Decimal("7000.00"),
+                gst_on_markup=Decimal("1260.00"),
+                category="Shopping",
+            )
+        )
+        session.commit()
+
+        recommendation = recommend_card_upgrade(session, card_id)
+        assert "HIGH FOREX Spending" in recommendation.reason
 
 
 def test_unknown_card_raises(seeded_priority_customer):

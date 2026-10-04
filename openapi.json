@@ -43,6 +43,22 @@
               "title": "To Date"
             },
             "description": "End of the date range (inclusive), e.g. 2026-09-30"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -86,6 +102,22 @@
               "type": "string",
               "title": "Account Number"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -128,6 +160,22 @@
             "schema": {
               "type": "integer",
               "title": "Card Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -187,6 +235,22 @@
               "default": true,
               "title": "Active Only"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -229,6 +293,22 @@
             "schema": {
               "type": "integer",
               "title": "Card Product Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -355,6 +435,22 @@
               "title": "Merchant Text"
             },
             "description": "Free-text merchant search, e.g. 'Wisdom Property'"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -417,6 +513,22 @@
               "title": "As Of Date"
             },
             "description": "Window end date; defaults to today"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -480,6 +592,22 @@
               "title": "To Date"
             },
             "description": "End of the date range (inclusive)"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -523,6 +651,22 @@
               "type": "integer",
               "title": "Card Id"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -553,15 +697,33 @@
       "post": {
         "summary": "Submit Card Application",
         "operationId": "submit_card_application_card_applications_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CardApplicationCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -599,6 +761,22 @@
             "schema": {
               "type": "integer",
               "title": "Application Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -639,6 +817,22 @@
               "type": "string",
               "title": "Account Number"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -648,6 +842,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CustomerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_number}/customer-360": {
+      "get": {
+        "summary": "Read Account Customer 360",
+        "operationId": "read_account_customer_360_accounts__account_number__customer_360_get",
+        "parameters": [
+          {
+            "name": "account_number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Number"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer360Out"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_number}/service-requests/latest": {
+      "get": {
+        "summary": "Read Account Latest Service Request",
+        "operationId": "read_account_latest_service_request_accounts__account_number__service_requests_latest_get",
+        "parameters": [
+          {
+            "name": "account_number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Number"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceRequestOut"
                 }
               }
             }
@@ -677,6 +981,22 @@
             "schema": {
               "type": "integer",
               "title": "Transaction Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -727,6 +1047,22 @@
               "type": "integer",
               "title": "Dispute Id"
             }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -765,6 +1101,22 @@
             "schema": {
               "type": "integer",
               "title": "Customer Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -1072,6 +1424,55 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "external_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Product Id"
+          },
+          "forex_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forex Enabled"
+          },
+          "product_rewards_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Rewards Enabled"
+          },
+          "key_features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Features",
+            "default": []
+          },
+          "eligibility_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Eligibility Criteria",
+            "default": []
           }
         },
         "type": "object",
@@ -1149,6 +1550,25 @@
             "type": "string",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Net Joining Fee After Discount"
+          },
+          "action_type": {
+            "type": "string",
+            "title": "Action Type"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "applicable_discounts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable Discounts"
           }
         },
         "type": "object",
@@ -1162,7 +1582,10 @@
           "joining_fee",
           "annual_fee",
           "discount_pct_applied",
-          "net_joining_fee_after_discount"
+          "net_joining_fee_after_discount",
+          "action_type",
+          "reason",
+          "applicable_discounts"
         ],
         "title": "CardRecommendationOut"
       },
@@ -1197,6 +1620,100 @@
         ],
         "title": "CategorySpendOut"
       },
+      "Customer360Out": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "customer_id": {
+            "type": "integer",
+            "title": "Customer Id"
+          },
+          "account_number": {
+            "type": "string",
+            "title": "Account Number"
+          },
+          "customer_name": {
+            "type": "string",
+            "title": "Customer Name"
+          },
+          "onboarding_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onboarding Date"
+          },
+          "email_work_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Work Masked"
+          },
+          "email_personal_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Personal Masked"
+          },
+          "addresses": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Addresses"
+          },
+          "current_instruments": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Current Instruments"
+          },
+          "next_best_offer": {
+            "$ref": "#/components/schemas/NextBestOfferOut"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "account_number",
+          "customer_name",
+          "onboarding_date",
+          "email_work_masked",
+          "email_personal_masked",
+          "addresses",
+          "current_instruments",
+          "next_best_offer",
+          "updated_at"
+        ],
+        "title": "Customer360Out",
+        "description": "Customer-360 snapshot, wire-safe: emails are masked like CustomerOut."
+      },
       "CustomerOut": {
         "properties": {
           "id": {
@@ -1229,6 +1746,40 @@
               }
             ],
             "title": "Alt Email Masked"
+          },
+          "email_work_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Work Masked"
+          },
+          "email_personal_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Personal Masked"
+          },
+          "onboarding_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onboarding Date"
           },
           "delivery_address_office": {
             "anyOf": [
@@ -1277,6 +1828,9 @@
           "relationship_tier",
           "registered_email_masked",
           "alt_email_masked",
+          "email_work_masked",
+          "email_personal_masked",
+          "onboarding_date",
           "delivery_address_office",
           "delivery_address_home",
           "preferred_delivery_address_type",
@@ -1431,6 +1985,137 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "NextBestOfferOut": {
+        "properties": {
+          "recommended_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Product Id"
+          },
+          "action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Type"
+          },
+          "applicable_discounts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable Discounts"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recommended_product_id",
+          "action_type",
+          "applicable_discounts",
+          "reason"
+        ],
+        "title": "NextBestOfferOut"
+      },
+      "ServiceRequestOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "customer_id": {
+            "type": "integer",
+            "title": "Customer Id"
+          },
+          "service_request_id": {
+            "type": "string",
+            "title": "Service Request Id"
+          },
+          "service_request_type": {
+            "type": "string",
+            "title": "Service Request Type"
+          },
+          "service_request_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Service Request Date"
+          },
+          "service_request_status": {
+            "type": "string",
+            "title": "Service Request Status"
+          },
+          "service_request_details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Request Details"
+          },
+          "service_request_delivery_address_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Request Delivery Address Type"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "service_request_id",
+          "service_request_type",
+          "service_request_date",
+          "service_request_status",
+          "service_request_details",
+          "service_request_delivery_address_type",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ServiceRequestOut"
       },
       "TransactionOut": {
         "properties": {

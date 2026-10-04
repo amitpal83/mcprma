@@ -29,6 +29,7 @@ from api.repository import (
     CardApplicationNotFoundError,
     CardNotFoundError,
     CardProductNotFoundError,
+    Customer360NotFoundError,
     CustomerNotFoundError,
     DisputeAlreadyOpenError,
     DisputeNotFoundError,
@@ -37,6 +38,7 @@ from api.repository import (
     InvalidDateRangeError,
     InvalidDeliveryAddressTypeError,
     NoEligibleCardProductError,
+    ServiceRequestNotFoundError,
     TransactionNotFoundError,
 )
 from api.repository import create_card_application as query_create_card_application
@@ -47,7 +49,9 @@ from api.repository import get_card_application_status as query_get_card_applica
 from api.repository import get_card_category_breakdown as query_get_card_category_breakdown
 from api.repository import get_card_forex_summary as query_get_card_forex_summary
 from api.repository import get_card_product as query_get_card_product
+from api.repository import get_customer_360 as query_get_customer_360
 from api.repository import get_customer_by_account as query_get_customer_by_account
+from api.repository import get_latest_service_request as query_get_latest_service_request
 from api.repository import list_card_products as query_list_card_products
 from api.repository import list_cards_for_account as query_list_cards_for_account
 from api.repository import recommend_card_upgrade as query_recommend_card_upgrade
@@ -60,9 +64,11 @@ from api.schemas import (
     CardProductOut,
     CardRecommendationOut,
     CategorySpendOut,
+    Customer360Out,
     CustomerOut,
     DisputeOut,
     ForexSummaryOut,
+    ServiceRequestOut,
     TransactionOut,
 )
 from config.logging_config import configure_logging
@@ -155,12 +161,32 @@ def fetch_account_transactions(
 
 @mcp.tool()
 def get_account_txn_details(account_number: str, from_date: str, to_date: str) -> list[dict]:
-    """Get an account's transactions within an inclusive date range.
+    """Get every statement line for an account within an inclusive date range.
+
+    Includes both plain bank-narration rows (UPI/IMPS/ACH) and debit-card
+    rows; a credit card never appears here (see create_card_application /
+    get_card_application_status instead -- credit cards aren't tracked as a
+    transaction ledger in this system).
 
     Args:
         account_number: The account number to look up, e.g. "8552".
         from_date: Start of the range (inclusive), ISO format "YYYY-MM-DD".
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
+
+    Returns:
+        A list of transaction objects ordered oldest-first, each with: id,
+        account_number, txn_date, value_date, narration (raw statement
+        descriptor), reference_no, withdrawal_amount/deposit_amount (INR),
+        closing_balance (INR, running balance after this line), card_id
+        (set only on debit-card rows), merchant_id (set only when the
+        narration resolved to a canonical merchant), category, and a set of
+        forex fields -- txn_currency, txn_amount, exchange_rate,
+        forex_markup_pct, forex_markup_amount, gst_on_markup -- all null
+        unless this was a foreign-currency card spend.
+
+    Raises:
+        ToolError: account_number doesn't exist; from_date is after to_date;
+            or either date isn't a valid "YYYY-MM-DD" string.
     """
     logger.info("MCP tool call: get_account_txn_details(%s, %s, %s)", account_number, from_date, to_date)
     return fetch_account_transactions(account_number, from_date, to_date)
@@ -182,10 +208,20 @@ def fetch_cards_for_account(
 
 @mcp.tool()
 def list_account_cards(account_number: str) -> list[dict]:
-    """List all cards linked to an account.
+    """List all cards (debit and/or credit) linked to an account.
 
     Args:
         account_number: The account number to look up, e.g. "8552".
+
+    Returns:
+        A list of card objects, each with: id (use this as card_id in the
+        other card-scoped tools), account_number, card_product_id (FK into
+        the catalogue -- see get_card_product), last4, network (e.g.
+        "Visa"), card_type ("debit"/"credit"), status (e.g. "active"),
+        issued_at, created_at. Empty list if the account has no cards.
+
+    Raises:
+        ToolError: account_number doesn't exist.
     """
     logger.info("MCP tool call: list_account_cards(%s)", account_number)
     return fetch_cards_for_account(account_number)
@@ -204,10 +240,19 @@ def fetch_card(card_id: int, session_factory: sessionmaker | None = None) -> dic
 
 @mcp.tool()
 def get_card(card_id: int) -> dict[str, Any]:
-    """Get a single card by its id.
+    """Get a single card by its internal id.
 
     Args:
-        card_id: The card's internal id, e.g. 1.
+        card_id: The card's internal id, e.g. 1. Get this from
+            list_account_cards if you only know the account number.
+
+    Returns:
+        A card object: id, account_number, card_product_id (FK into the
+        catalogue -- see get_card_product), last4, network, card_type
+        ("debit"/"credit"), status, issued_at, created_at.
+
+    Raises:
+        ToolError: card_id doesn't exist.
     """
     logger.info("MCP tool call: get_card(%s)", card_id)
     return fetch_card(card_id)
@@ -226,11 +271,27 @@ def fetch_card_products(
 
 @mcp.tool()
 def list_card_products(card_type: str | None = None, active_only: bool = True) -> list[dict]:
-    """List the card product catalogue.
+    """List the card product catalogue (what a customer could be issued or upgraded to).
 
     Args:
         card_type: Optional filter, "debit" or "credit". Omit for all types.
         active_only: If true (default), only currently offered products are returned.
+
+    Returns:
+        A list of card-product objects, each with: id, external_product_id
+        (the catalogue source's own id, e.g. "prod-2", or null if this
+        product predates the catalogue), name, network, card_type,
+        forex_markup_pct, forex_enabled (whether it carries forex markup at
+        all), joining_fee, annual_fee, lounge_visits_domestic_per_year /
+        lounge_visits_international_per_year (null means unlimited, not
+        "not applicable"), guest_visits_per_year, product_rewards_enabled,
+        reward_transfer_partners (list of loyalty programs, [] if none),
+        key_features (list of marketing bullet points), eligibility_criteria
+        (list of requirements to qualify), min_relationship_tier_for_discount
+        / relationship_discount_pct (a joining-fee discount a customer only
+        gets if their relationship_tier -- see get_customer_profile -- meets
+        this minimum; see get_card_recommendation for how that's applied),
+        is_active, created_at.
     """
     logger.info("MCP tool call: list_card_products(%s, %s)", card_type, active_only)
     return fetch_card_products(card_type, active_only)
@@ -252,7 +313,18 @@ def get_card_product(card_product_id: int) -> dict[str, Any]:
     """Get a single card product from the catalogue.
 
     Args:
-        card_product_id: The product's internal id, e.g. 1.
+        card_product_id: The product's internal id, e.g. 1. Get this from
+            list_card_products, or from the recommended_product.id in
+            get_card_recommendation.
+
+    Returns:
+        A card-product object -- see list_card_products for the full field
+        list (external_product_id, fees, forex_markup_pct, lounge/guest
+        visit allowances, reward_transfer_partners, key_features,
+        eligibility_criteria, discount eligibility, is_active).
+
+    Raises:
+        ToolError: card_product_id doesn't exist.
     """
     logger.info("MCP tool call: get_card_product(%s)", card_product_id)
     return fetch_card_product(card_product_id)
@@ -301,14 +373,33 @@ def search_card_transactions(
 ) -> list[dict]:
     """Search a card's transactions by date range, optional amount range, and merchant text.
 
+    Use this instead of get_account_txn_details when you want to filter by
+    amount or merchant, or already know the card_id rather than the account.
+
     Args:
         card_id: The card's internal id, e.g. 1.
         from_date: Start of the range (inclusive), ISO format "YYYY-MM-DD".
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
-        amount_min: Optional minimum amount, e.g. "340" -- matches either the
-            original foreign-currency amount or the INR-settled amount.
+        amount_min: Optional minimum amount, as a decimal string, e.g. "340"
+            -- matches either the original foreign-currency amount
+            (txn_amount) or the INR-settled amount (withdrawal_amount), since
+            you may not know which currency a remembered figure was in.
         amount_max: Optional maximum amount, e.g. "360".
-        merchant_text: Optional free-text merchant search, e.g. "Wisdom Property".
+        merchant_text: Optional free-text merchant search, e.g. "Wisdom
+            Property". Tries to resolve to a canonical merchant first (so
+            this matches even if the raw statement narration looks nothing
+            like it, e.g. "WISDOM PROPERTY NL II"); falls back to a
+            case-insensitive substring match against the raw narration if it
+            can't be resolved.
+
+    Returns:
+        A list of transaction objects (same shape as get_account_txn_details),
+        ordered oldest-first. Empty list if nothing matches.
+
+    Raises:
+        ToolError: card_id doesn't exist; from_date is after to_date; or a
+            date/amount argument isn't a valid "YYYY-MM-DD" date / decimal
+            number string.
     """
     logger.info(
         "MCP tool call: search_card_transactions(%s, %s, %s, %s, %s, %r)",
@@ -336,11 +427,27 @@ def fetch_card_forex_summary(
 
 @mcp.tool()
 def get_card_forex_summary(card_id: int, as_of_date: str | None = None) -> dict[str, Any]:
-    """Summarize a card's forex spend over the trailing 365 days ending as_of_date.
+    """Summarize a card's foreign-currency spend over the trailing 365 days ending as_of_date.
+
+    Only counts transactions that actually carried forex markup (i.e. had a
+    txn_currency set) -- domestic spend is excluded entirely. This is the
+    same spend figure get_card_recommendation projects savings from.
 
     Args:
         card_id: The card's internal id, e.g. 1.
-        as_of_date: Optional window end date, ISO format "YYYY-MM-DD". Defaults to today.
+        as_of_date: Optional window end date, ISO format "YYYY-MM-DD".
+            Defaults to today. The window is always exactly the 365 days
+            ending on this date.
+
+    Returns:
+        A summary object: card_id, from_date/to_date (the actual window
+        used), total_forex_spend_inr (sum of INR-settled amounts),
+        total_markup_amount, total_gst_amount, total_markup_and_gst (sum of
+        the two), transaction_count.
+
+    Raises:
+        ToolError: card_id doesn't exist, or as_of_date isn't a valid
+            "YYYY-MM-DD" string.
     """
     logger.info("MCP tool call: get_card_forex_summary(%s, %s)", card_id, as_of_date)
     return fetch_card_forex_summary(card_id, as_of_date)
@@ -367,12 +474,24 @@ def fetch_card_category_breakdown(
 
 @mcp.tool()
 def get_card_category_breakdown(card_id: int, from_date: str, to_date: str) -> list[dict]:
-    """Group a card's spend by category over a date range.
+    """Group a card's spend by category (e.g. Dining, Travel, Hotel, Shopping) over a date range.
+
+    Only counts rows with a withdrawal_amount set (spend, not deposits), and
+    only rows with a non-null category.
 
     Args:
         card_id: The card's internal id, e.g. 1.
         from_date: Start of the range (inclusive), ISO format "YYYY-MM-DD".
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
+
+    Returns:
+        A list of objects, one per distinct category present in the range:
+        category, total_amount (INR, summed), transaction_count. Empty list
+        if there's no spend in the range.
+
+    Raises:
+        ToolError: card_id doesn't exist, or from_date is after to_date, or
+            either date isn't a valid "YYYY-MM-DD" string.
     """
     logger.info("MCP tool call: get_card_category_breakdown(%s, %s, %s)", card_id, from_date, to_date)
     return fetch_card_category_breakdown(card_id, from_date, to_date)
@@ -391,13 +510,114 @@ def fetch_customer_by_account(account_number: str, session_factory: sessionmaker
 
 @mcp.tool()
 def get_customer_profile(account_number: str) -> dict[str, Any]:
-    """Get an account's RM-facing customer profile (email is masked).
+    """Get an account's RM-facing customer profile: identity, relationship tier, delivery address.
+
+    For the fuller 360-degree view (addresses list, instruments, the
+    standing next-best-offer), use get_customer_360 instead.
 
     Args:
         account_number: The account number to look up, e.g. "8552".
+
+    Returns:
+        A customer object: id (use this as customer_id elsewhere, e.g.
+        update_customer_delivery_preference, create_card_application),
+        account_number, full_name, relationship_tier (e.g. "STANDARD",
+        "PRIORITY", "PREMIUM", "PRIVATE" -- determines eligibility for
+        card-product discounts, see get_card_recommendation),
+        registered_email_masked / alt_email_masked / email_work_masked /
+        email_personal_masked (local part obscured, domain visible, e.g.
+        "wor***@email.com" -- the raw email is never returned),
+        onboarding_date, delivery_address_office, delivery_address_home,
+        preferred_delivery_address_type ("OFFICE" or "HOME"), updated_at.
+
+    Raises:
+        ToolError: account_number has no customer profile.
     """
     logger.info("MCP tool call: get_customer_profile(%s)", account_number)
     return fetch_customer_by_account(account_number)
+
+
+def fetch_customer_360(account_number: str, session_factory: sessionmaker | None = None) -> dict[str, Any]:
+    factory = session_factory or SessionLocal
+    with factory() as session:
+        try:
+            snapshot = query_get_customer_360(session, account_number)
+        except Customer360NotFoundError as exc:
+            raise ToolError(str(exc)) from exc
+
+        return Customer360Out.model_validate(snapshot).model_dump(mode="json")
+
+
+@mcp.tool()
+def get_customer_360(account_number: str) -> dict[str, Any]:
+    """Get an account's full customer-360 snapshot: identity, every known
+    address, every current banking instrument, and the standing next-best-offer.
+
+    This is a denormalized, point-in-time snapshot (not a live view) built
+    from the customer's own profile plus whatever source data it was seeded
+    from -- for the always-current RM-facing profile fields alone, use
+    get_customer_profile; for a live-computed recommendation instead of the
+    stored next_best_offer, use get_card_recommendation.
+
+    Args:
+        account_number: The account number to look up, e.g. "8552".
+
+    Returns:
+        A snapshot object: id, customer_id, account_number, customer_name,
+        onboarding_date, email_work_masked / email_personal_masked (masked
+        the same way as get_customer_profile), addresses (list of
+        {address_type, address, preferred_flag}, e.g. "Bank Branch"/"home"),
+        current_instruments (list of {instrument_type, instrument_name,
+        instrument_identifier, instrument_expiry, instrument_last_kyc} --
+        e.g. the customer's debit card and savings account), next_best_offer
+        ({recommended_product_id (a catalogue external_product_id, e.g.
+        "prod-2"), action_type (e.g. "cross_sell"), applicable_discounts
+        (e.g. "25% on joining fee"), reason (e.g. "HIGH FOREX Spending")}),
+        updated_at.
+
+    Raises:
+        ToolError: account_number has no customer-360 snapshot.
+    """
+    logger.info("MCP tool call: get_customer_360(%s)", account_number)
+    return fetch_customer_360(account_number)
+
+
+def fetch_latest_service_request(account_number: str, session_factory: sessionmaker | None = None) -> dict[str, Any]:
+    factory = session_factory or SessionLocal
+    with factory() as session:
+        try:
+            customer = query_get_customer_by_account(session, account_number)
+            service_request = query_get_latest_service_request(session, customer.id)
+        except (CustomerNotFoundError, ServiceRequestNotFoundError) as exc:
+            raise ToolError(str(exc)) from exc
+
+        return ServiceRequestOut.model_validate(service_request).model_dump(mode="json")
+
+
+@mcp.tool()
+def get_latest_service_request(account_number: str) -> dict[str, Any]:
+    """Get an account's most recent service request (e.g. a statement/document dispatch, card replacement).
+
+    "Most recent" means the single request with the latest
+    service_request_date -- this does not return the full history.
+
+    Args:
+        account_number: The account number to look up, e.g. "8552".
+
+    Returns:
+        A service-request object: id, customer_id, service_request_id (the
+        business-facing id, e.g. "SR1156788-20261001"), service_request_type
+        (e.g. "account_statement"), service_request_date,
+        service_request_status (e.g. "under progress", "closed"),
+        service_request_details (free text, e.g. courier/delivery notes),
+        service_request_delivery_address_type, created_at, updated_at.
+
+    Raises:
+        ToolError: account_number has no customer profile, or that customer
+            has no service requests at all.
+    """
+    logger.info("MCP tool call: get_latest_service_request(%s)", account_number)
+    return fetch_latest_service_request(account_number)
 
 
 def fetch_update_customer_delivery_preference(
@@ -419,11 +639,21 @@ def fetch_update_customer_delivery_preference(
 
 @mcp.tool()
 def update_customer_delivery_preference(customer_id: int, preferred_delivery_address_type: str) -> dict[str, Any]:
-    """Update which address a customer prefers for card/document delivery.
+    """Update which address a customer prefers for card/document delivery. This writes to the database.
 
     Args:
-        customer_id: The customer's internal id, e.g. 1.
-        preferred_delivery_address_type: Either "OFFICE" or "HOME".
+        customer_id: The customer's internal id, e.g. 1. Get this from
+            get_customer_profile's `id` field.
+        preferred_delivery_address_type: Either "OFFICE" or "HOME" (any
+            other value is rejected). This only changes the preference flag
+            -- it does not change delivery_address_office/_home themselves.
+
+    Returns:
+        The updated customer object, same shape as get_customer_profile.
+
+    Raises:
+        ToolError: preferred_delivery_address_type isn't "OFFICE" or "HOME",
+            or customer_id doesn't exist.
     """
     logger.info(
         "MCP tool call: update_customer_delivery_preference(%s, %s)",
@@ -450,11 +680,23 @@ def fetch_create_dispute(
 
 @mcp.tool()
 def create_dispute(transaction_id: int, reason: str) -> dict[str, Any]:
-    """Raise a dispute against a transaction.
+    """Raise a dispute against a transaction. This writes to the database.
+
+    A transaction can only have one OPEN dispute at a time -- withdraw the
+    existing one first (see withdraw_dispute) if you need to re-raise.
 
     Args:
-        transaction_id: The transaction's internal id, e.g. 1.
+        transaction_id: The transaction's internal id (the `id` field from
+            get_account_txn_details / search_card_transactions), e.g. 1.
         reason: Why the customer is disputing it, e.g. "Unrecognized charge".
+
+    Returns:
+        The created dispute object: id, transaction_id, status ("OPEN"),
+        reason, raised_at, resolved_at (null).
+
+    Raises:
+        ToolError: transaction_id doesn't exist, or it already has an OPEN
+            dispute.
     """
     logger.info("MCP tool call: create_dispute(%s, %r)", transaction_id, reason)
     return fetch_create_dispute(transaction_id, reason)
@@ -473,10 +715,19 @@ def fetch_withdraw_dispute(dispute_id: int, session_factory: sessionmaker | None
 
 @mcp.tool()
 def withdraw_dispute(dispute_id: int) -> dict[str, Any]:
-    """Withdraw an open dispute (e.g. the customer recognizes the charge).
+    """Withdraw an open dispute (e.g. the customer recognizes the charge). This writes to the database.
 
     Args:
-        dispute_id: The dispute's internal id, e.g. 1.
+        dispute_id: The dispute's internal id (the `id` field returned by
+            create_dispute), e.g. 1.
+
+    Returns:
+        The updated dispute object: id, transaction_id, status
+        ("WITHDRAWN"), reason, raised_at, resolved_at (now set).
+
+    Raises:
+        ToolError: dispute_id doesn't exist, or it isn't currently OPEN
+            (e.g. already withdrawn).
     """
     logger.info("MCP tool call: withdraw_dispute(%s)", dispute_id)
     return fetch_withdraw_dispute(dispute_id)
@@ -495,10 +746,43 @@ def fetch_card_recommendation(card_id: int, session_factory: sessionmaker | None
 
 @mcp.tool()
 def get_card_recommendation(card_id: int) -> dict[str, Any]:
-    """Recommend a lower-forex-markup card upgrade and project the annual savings.
+    """Recommend a lower-forex-markup card upgrade for this card and project the annual savings.
+
+    This is a live computation (recomputed from the card's own trailing
+    365-day forex history every call), not the stored snapshot in
+    get_customer_360's next_best_offer -- the two should normally agree but
+    this one is always current. The candidate is the active credit product
+    in the catalogue with the lowest forex_markup_pct strictly below this
+    card's own product (tie-broken by lowest annual_fee); if none beats the
+    current card, there's nothing to recommend.
 
     Args:
-        card_id: The current card's internal id, e.g. 1.
+        card_id: The current card's internal id, e.g. 1. Works for a debit
+            or credit card.
+
+    Returns:
+        A recommendation object: current_card_id, recommended_product (the
+        full card-product object, see get_card_product),
+        trailing_12mo_forex_spend_inr (the spend the projection is based
+        on), current_annual_markup_and_gst (what the current card costs in
+        forex markup + GST on that same spend), projected_annual_markup_and_gst
+        (what the recommended product would cost on the same spend),
+        projected_annual_savings (the difference), joining_fee, annual_fee
+        (the recommended product's own, undiscounted), discount_pct_applied
+        (null unless the customer's relationship_tier -- see
+        get_customer_profile -- meets the product's discount-eligibility
+        minimum), net_joining_fee_after_discount (joining fee after any
+        discount, with GST added back), action_type ("cross_sell" when the
+        recommended product is a different card_type than the current card,
+        e.g. debit to credit; "upgrade" otherwise), reason (a short
+        human-readable justification, e.g. "HIGH FOREX Spending: ..." above
+        a spend threshold, else a lower-markup pitch), applicable_discounts
+        (formatted text, e.g. "25% on joining fee", or null if no discount
+        applies).
+
+    Raises:
+        ToolError: card_id doesn't exist, or no active credit product in the
+            catalogue has a lower forex markup than this card's own product.
     """
     logger.info("MCP tool call: get_card_recommendation(%s)", card_id)
     return fetch_card_recommendation(card_id)
@@ -528,12 +812,33 @@ def create_card_application(
     card_product_id: int,
     delivery_address: str | None = None,
 ) -> dict[str, Any]:
-    """Submit a card application for a customer.
+    """Submit a card application for a customer (e.g. accepting a get_card_recommendation pitch). This writes to the database.
+
+    A given customer can only have one SUBMITTED application per
+    card_product at a time -- submitting again for the same pair raises an
+    error rather than creating a duplicate. Any relationship-tier discount
+    the product is eligible for (see get_card_recommendation) is computed
+    and applied automatically; you don't pass it in.
 
     Args:
         customer_id: The customer's internal id, e.g. 1.
-        card_product_id: The card product being applied for, e.g. 2.
-        delivery_address: Optional delivery address, e.g. the customer's office address.
+        card_product_id: The card product being applied for, e.g. 2. Get
+            this from list_card_products or get_card_recommendation's
+            recommended_product.id.
+        delivery_address: Optional delivery address, e.g. the customer's
+            office address. This is a point-in-time snapshot, independent of
+            the customer's delivery_address_office/_home on file -- a later
+            change to those does not retroactively change this.
+
+    Returns:
+        The created application object: id (use this as application_id in
+        get_card_application_status), customer_id, card_product_id, status
+        ("SUBMITTED"), applied_at, discount_pct_applied, fee_charged,
+        delivery_address.
+
+    Raises:
+        ToolError: customer_id or card_product_id doesn't exist, or that
+            customer already has a SUBMITTED application for that product.
     """
     logger.info(
         "MCP tool call: create_card_application(%s, %s, %r)",
@@ -558,7 +863,16 @@ def get_card_application_status(application_id: int) -> dict[str, Any]:
     """Get a card application's current status.
 
     Args:
-        application_id: The application's internal id, e.g. 1.
+        application_id: The application's internal id (the `id` field
+            returned by create_card_application), e.g. 1.
+
+    Returns:
+        An application object: id, customer_id, card_product_id, status
+        (e.g. "SUBMITTED"), applied_at, discount_pct_applied, fee_charged,
+        delivery_address (the snapshot taken at submission time).
+
+    Raises:
+        ToolError: application_id doesn't exist.
     """
     logger.info("MCP tool call: get_card_application_status(%s)", application_id)
     return fetch_card_application_status(application_id)

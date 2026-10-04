@@ -11,7 +11,7 @@ across steps so work can resume without re-deriving context.
 >   sensitive: don't commit `data/*.xls`/`data/rma.db` to a shared/public
 >   repo, don't paste their contents into external tools, don't send them
 >   anywhere outside this machine.
-> - **Account `DEMO-MEHTA-01`** — entirely **fictional** demo data (a
+> - **Account `ACC101`** — entirely **fictional** demo data (a
 >   "Digital RM Twin" proof-of-concept script: a fictional customer "Mr.
 >   Mehta", a disputed card transaction, a card-upgrade pitch). Seeded by
 >   `etl/seed_demo_data.py`, deliberately kept under its own account number
@@ -102,7 +102,7 @@ surface this added.
    quoted. Duplicate `SUBMITTED` application blocked; a new one is allowed
    once a prior one is `REJECTED`/`CANCELLED`.
 9. **Seed data** (`etl/seed_demo_data.py`): seeds the fictional dataset under
-   `DEMO-MEHTA-01` (see data-sensitivity note above) — DoubleTree/Wisdom
+   `ACC101` (see data-sensitivity note above) — DoubleTree/Wisdom
    Property merchant+alias, both card products, Mr. Mehta's customer profile,
    his debit card (`•••• 4821`), and 15 forex transactions summing to exactly
    the script's figures. Idempotent re-run, same dedup-by-natural-key pattern
@@ -234,7 +234,7 @@ C:\RMA\
     session.py                 # engine, SessionLocal, init_db() (+ auto column-migration)
   etl/
     excel_importer.py          # parses the real .xls statement into SQLite (account 8552)
-    seed_demo_data.py          # seeds the fictional RM Twin demo data (account DEMO-MEHTA-01)
+    seed_demo_data.py          # seeds the fictional RM Twin demo data (account ACC101)
   api/
     schemas.py                 # Pydantic response/request models
     repository/                # framework-agnostic query/write logic, split by domain
@@ -254,7 +254,7 @@ C:\RMA\
                                  #   API (FastAPI TestClient), MCP (call_tool() in-process)
   data/
     Account_Statement_Sep26.xls  # real statement source (account 8552)
-    rma.db                       # SQLite -- holds BOTH 8552 (real) and DEMO-MEHTA-01 (fictional)
+    rma.db                       # SQLite -- holds BOTH 8552 (real) and ACC101 (fictional)
   logs/
     app.log
 ```
@@ -305,7 +305,7 @@ python -m pip install -r requirements.txt
 python -m etl.excel_importer data/Account_Statement_Sep26.xls 8552 --max-rows 20
 ```
 
-**Seed the fictional RM Twin demo data** (account `DEMO-MEHTA-01`, idempotent):
+**Seed the fictional RM Twin demo data** (account `ACC101`, idempotent):
 ```bash
 python -m etl.seed_demo_data
 ```

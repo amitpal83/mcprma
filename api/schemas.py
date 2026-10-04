@@ -5,12 +5,17 @@ evolve independently of the ORM/table structure.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from api.repository.cards import decode_reward_transfer_partners
+from api.repository.cards import (
+    decode_eligibility_criteria,
+    decode_key_features,
+    decode_reward_transfer_partners,
+)
 from api.repository.customers import mask_email
 
 
@@ -92,12 +97,31 @@ class CardProductOut(BaseModel):
     relationship_discount_pct: Decimal | None
     is_active: bool
     created_at: datetime
+    external_product_id: str | None = None
+    forex_enabled: bool | None = None
+    product_rewards_enabled: bool | None = None
+    key_features: list[str] = []
+    eligibility_criteria: list[str] = []
 
     @field_validator("reward_transfer_partners", mode="before")
     @classmethod
     def _decode_reward_transfer_partners(cls, value: object) -> list[str]:
         if value is None or isinstance(value, str):
             return decode_reward_transfer_partners(value)
+        return value
+
+    @field_validator("key_features", mode="before")
+    @classmethod
+    def _decode_key_features(cls, value: object) -> list[str]:
+        if value is None or isinstance(value, str):
+            return decode_key_features(value)
+        return value
+
+    @field_validator("eligibility_criteria", mode="before")
+    @classmethod
+    def _decode_eligibility_criteria(cls, value: object) -> list[str]:
+        if value is None or isinstance(value, str):
+            return decode_eligibility_criteria(value)
         return value
 
 
@@ -114,6 +138,9 @@ class CustomerOut(BaseModel):
     relationship_tier: str
     registered_email_masked: str
     alt_email_masked: str | None
+    email_work_masked: str | None
+    email_personal_masked: str | None
+    onboarding_date: date | None
     delivery_address_office: str | None
     delivery_address_home: str | None
     preferred_delivery_address_type: str | None
@@ -126,12 +153,15 @@ class CustomerOut(BaseModel):
             source = dict(data)
             registered_email = source.get("registered_email")
             alt_email = source.get("alt_email")
+            email_work = source.get("email_work")
+            email_personal = source.get("email_personal")
         else:
             source = {
                 "id": data.id,
                 "account_number": data.account_number,
                 "full_name": data.full_name,
                 "relationship_tier": data.relationship_tier,
+                "onboarding_date": data.onboarding_date,
                 "delivery_address_office": data.delivery_address_office,
                 "delivery_address_home": data.delivery_address_home,
                 "preferred_delivery_address_type": data.preferred_delivery_address_type,
@@ -139,9 +169,13 @@ class CustomerOut(BaseModel):
             }
             registered_email = data.registered_email
             alt_email = data.alt_email
+            email_work = data.email_work
+            email_personal = data.email_personal
 
         source["registered_email_masked"] = mask_email(registered_email) if registered_email else None
         source["alt_email_masked"] = mask_email(alt_email) if alt_email else None
+        source["email_work_masked"] = mask_email(email_work) if email_work else None
+        source["email_personal_masked"] = mask_email(email_personal) if email_personal else None
         return source
 
 
@@ -177,6 +211,84 @@ class CardRecommendationOut(BaseModel):
     annual_fee: Decimal
     discount_pct_applied: Decimal | None
     net_joining_fee_after_discount: Decimal
+    action_type: str
+    reason: str
+    applicable_discounts: str | None
+
+
+class ServiceRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_id: int
+    service_request_id: str
+    service_request_type: str
+    service_request_date: date
+    service_request_status: str
+    service_request_details: str | None
+    service_request_delivery_address_type: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NextBestOfferOut(BaseModel):
+    recommended_product_id: str | None
+    action_type: str | None
+    applicable_discounts: str | None
+    reason: str | None
+
+
+class Customer360Out(BaseModel):
+    """Customer-360 snapshot, wire-safe: emails are masked like CustomerOut."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_id: int
+    account_number: str
+    customer_name: str
+    onboarding_date: date | None
+    email_work_masked: str | None
+    email_personal_masked: str | None
+    addresses: list[dict]
+    current_instruments: list[dict]
+    next_best_offer: NextBestOfferOut
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _shape(cls, data: object) -> dict:
+        if isinstance(data, dict):
+            source = dict(data)
+            email_work = source.get("email_work")
+            email_personal = source.get("email_personal")
+            addresses_json = source.get("addresses_json")
+            current_instruments_json = source.get("current_instruments_json")
+        else:
+            source = {
+                "id": data.id,
+                "customer_id": data.customer_id,
+                "account_number": data.account_number,
+                "customer_name": data.customer_name,
+                "onboarding_date": data.onboarding_date,
+                "updated_at": data.updated_at,
+            }
+            email_work = data.email_work
+            email_personal = data.email_personal
+            addresses_json = data.addresses_json
+            current_instruments_json = data.current_instruments_json
+            source["next_best_offer"] = {
+                "recommended_product_id": data.next_best_offer_product_external_id,
+                "action_type": data.next_best_offer_action_type,
+                "applicable_discounts": data.next_best_offer_applicable_discounts,
+                "reason": data.next_best_offer_reason,
+            }
+
+        source["email_work_masked"] = mask_email(email_work) if email_work else None
+        source["email_personal_masked"] = mask_email(email_personal) if email_personal else None
+        source["addresses"] = json.loads(addresses_json) if addresses_json else []
+        source["current_instruments"] = json.loads(current_instruments_json) if current_instruments_json else []
+        return source
 
 
 class CardApplicationOut(BaseModel):

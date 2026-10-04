@@ -21,6 +21,7 @@ from api.repository import (
     CardApplicationNotFoundError,
     CardNotFoundError,
     CardProductNotFoundError,
+    Customer360NotFoundError,
     CustomerNotFoundError,
     DisputeAlreadyOpenError,
     DisputeNotFoundError,
@@ -29,6 +30,7 @@ from api.repository import (
     InvalidDateRangeError,
     InvalidDeliveryAddressTypeError,
     NoEligibleCardProductError,
+    ServiceRequestNotFoundError,
     TransactionNotFoundError,
     create_card_application,
     create_dispute,
@@ -38,7 +40,9 @@ from api.repository import (
     get_card_category_breakdown,
     get_card_forex_summary,
     get_card_product,
+    get_customer_360,
     get_customer_by_account,
+    get_latest_service_request,
     list_card_products,
     list_cards_for_account,
     recommend_card_upgrade,
@@ -53,11 +57,13 @@ from api.schemas import (
     CardProductOut,
     CardRecommendationOut,
     CategorySpendOut,
+    Customer360Out,
     CustomerOut,
     DeliveryPreferenceUpdate,
     DisputeCreate,
     DisputeOut,
     ForexSummaryOut,
+    ServiceRequestOut,
     TransactionOut,
 )
 from config.logging_config import configure_logging
@@ -255,6 +261,27 @@ def read_account_customer(account_number: str, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return CustomerOut.model_validate(customer)
+
+
+@app.get("/accounts/{account_number}/customer-360", response_model=Customer360Out)
+def read_account_customer_360(account_number: str, db: Session = Depends(get_db)) -> Customer360Out:
+    try:
+        snapshot = get_customer_360(db, account_number)
+    except Customer360NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return Customer360Out.model_validate(snapshot)
+
+
+@app.get("/accounts/{account_number}/service-requests/latest", response_model=ServiceRequestOut)
+def read_account_latest_service_request(account_number: str, db: Session = Depends(get_db)) -> ServiceRequestOut:
+    try:
+        customer = get_customer_by_account(db, account_number)
+        service_request = get_latest_service_request(db, customer.id)
+    except (CustomerNotFoundError, ServiceRequestNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return ServiceRequestOut.model_validate(service_request)
 
 
 @app.post("/transactions/{transaction_id}/disputes", response_model=DisputeOut, status_code=201)

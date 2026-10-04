@@ -69,6 +69,34 @@ def encode_reward_transfer_partners(partners: list[str] | None) -> str | None:
     return json.dumps(partners)
 
 
+def decode_key_features(raw: str | None) -> list[str]:
+    """Decode CardProduct.key_features (JSON text), same convention as
+    decode_reward_transfer_partners."""
+    if not raw:
+        return []
+    return json.loads(raw)
+
+
+def encode_key_features(features: list[str] | None) -> str | None:
+    if not features:
+        return None
+    return json.dumps(features)
+
+
+def decode_eligibility_criteria(raw: str | None) -> list[str]:
+    """Decode CardProduct.eligibility_criteria (JSON text), same convention as
+    decode_reward_transfer_partners."""
+    if not raw:
+        return []
+    return json.loads(raw)
+
+
+def encode_eligibility_criteria(criteria: list[str] | None) -> str | None:
+    if not criteria:
+        return None
+    return json.dumps(criteria)
+
+
 def list_cards_for_account(session: Session, account_number: str) -> list[Card]:
     """Return all cards linked to account_number.
 
@@ -302,6 +330,12 @@ class NoEligibleCardProductError(Exception):
         super().__init__(f"No eligible upgrade card product found for card: {card_id}")
 
 
+# Trailing-12mo forex spend above which the recommendation's reason cites
+# "high forex spending" rather than a generic lower-markup pitch -- an
+# arbitrary but documented threshold, not derived from any external source.
+HIGH_FOREX_SPEND_THRESHOLD_INR = Decimal("100000")
+
+
 @dataclass
 class CardRecommendation:
     current_card_id: int
@@ -314,6 +348,9 @@ class CardRecommendation:
     annual_fee: Decimal
     discount_pct_applied: Decimal | None
     net_joining_fee_after_discount: Decimal
+    action_type: str
+    reason: str
+    applicable_discounts: str | None
 
 
 def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation:
@@ -382,11 +419,27 @@ def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation
         Decimal("0.01")
     )
 
+    action_type = "cross_sell" if candidate.card_type != current_product.card_type else "upgrade"
+    applicable_discounts = (
+        f"{discount_pct_applied.normalize()}% on joining fee" if discount_pct_applied is not None else None
+    )
+    if trailing_spend >= HIGH_FOREX_SPEND_THRESHOLD_INR:
+        reason = (
+            f"HIGH FOREX Spending: INR {trailing_spend:,.2f} spent abroad in the trailing 12 months, "
+            f"costing INR {current_total:,.2f} in forex markup + GST"
+        )
+    else:
+        reason = (
+            f"Lower forex markup available: {candidate.forex_markup_pct.normalize()}% vs. "
+            f"{current_product.forex_markup_pct.normalize()}% on the current card"
+        )
+
     logger.info(
-        "recommend_card_upgrade: card=%s -> product=%s projected_savings=%s",
+        "recommend_card_upgrade: card=%s -> product=%s projected_savings=%s action_type=%s",
         card_id,
         candidate.id,
         projected_savings,
+        action_type,
     )
     return CardRecommendation(
         current_card_id=card_id,
@@ -399,4 +452,7 @@ def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation
         annual_fee=candidate.annual_fee,
         discount_pct_applied=discount_pct_applied,
         net_joining_fee_after_discount=net_joining_fee_after_discount,
+        action_type=action_type,
+        reason=reason,
+        applicable_discounts=applicable_discounts,
     )

@@ -18,6 +18,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from sqlalchemy.orm import sessionmaker
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -96,6 +97,14 @@ class BearerTokenMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # CORS preflight requests never carry the app's own auth header (browsers
+        # strip custom headers from an OPTIONS preflight) -- let it through
+        # unauthenticated so CORSMiddleware (wrapped around this one) can answer
+        # it. The real request that follows is still checked below as normal.
+        if scope["method"] == "OPTIONS":
             await self.app(scope, receive, send)
             return
 
@@ -779,7 +788,15 @@ def create_card_application(
 def build_asgi_app() -> ASGIApp:
     """The same app mcp.run(transport="streamable-http", ...) builds
     internally (mcp.streamable_http_app(...)),  wrapped in
-    bearer-token auth. 
+    bearer-token auth, wrapped in CORS handling.
+
+    CORSMiddleware has to be outermost: it must see (and short-circuit) an
+    OPTIONS preflight itself, before BearerTokenMiddleware gets a chance to
+    401 it -- browsers never send the Authorization header on a preflight,
+    only on the real request that follows once the preflight succeeds.
+    Without this, a browser-based client (e.g. a gateway dashboard like
+    Portkey testing/discovering this server's tools from the user's browser)
+    can never get past the preflight to make that real request at all.
     """
     app: ASGIApp = mcp.streamable_http_app(host=DEFAULT_HOST)
     if BEARER_TOKEN:
@@ -789,6 +806,13 @@ def build_asgi_app() -> ASGIApp:
             "MCP_BEARER_TOKEN is not set -- running WITHOUT auth. Do not bind "
             "to a public interface (MCP_HOST) in this state."
         )
+    app = CORSMiddleware(
+        app,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Mcp-Session-Id"],
+    )
     return app
 
 

@@ -795,7 +795,18 @@ def build_asgi_app() -> ASGIApp:
 def main() -> None:
     import uvicorn
 
+    from etl.seed_demo_data import seed_demo_data
+
     init_db()
+    seed_result = seed_demo_data()
+    logger.info(
+        "Demo data reconciled: transactions_inserted=%s transactions_pruned=%s "
+        "service_requests_pruned=%s skipped=%s",
+        seed_result.transactions_inserted,
+        seed_result.transactions_pruned,
+        seed_result.service_requests_pruned,
+        seed_result.skipped,
+    )
     logger.info("Starting MCP server (Streamable HTTP transport) on %s:%s", DEFAULT_HOST, DEFAULT_PORT)
     config = uvicorn.Config(build_asgi_app(), host=DEFAULT_HOST, port=DEFAULT_PORT, log_level="info")
     uvicorn.Server(config).run()

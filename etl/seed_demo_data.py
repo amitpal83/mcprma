@@ -34,6 +34,7 @@ from db.models import (
     CardProduct,
     Customer,
     Customer360,
+    Dispute,
     Merchant,
     MerchantAlias,
     ServiceRequest,
@@ -47,32 +48,12 @@ DEFAULT_DEMO_ACCOUNT_NUMBER = "ACC101"
 
 WISDOM_PROPERTY_DESCRIPTOR = "WISDOM PROPERTY NL II"
 
-# 15 debit-card forex transactions over the trailing 12 months, matching the
-# demo script's own figures: they sum to INR 380,000 (~Rs.3.8L, the script's
-# "you've spent about Rs.3.8 lakh in foreign-currency") at a 3.5% markup +
-# 18% GST, which nets to Rs.15,694 (~Rs.15.7K, the script's "roughly Rs.15,700
-# extra"). Each (days_ago, currency, fx_amount, inr_amount, category,
-# narration, merchant_location, kiosk) row is a days-before-"today" offset so
-# the trailing-365-day forex summary picks all of them up regardless of which
-# day this is seeded. The Wisdom Property row is pinned to exactly the
-# script's "12 Aug" / "353 euros" / "32,000 INR" figures.
-_FOREX_TRANSACTIONS = [
-    (351, "USD", Decimal("300.00"), Decimal("25000.00"), "Shopping", "AMAZON.COM AMZN.COM/BILL WA", "Online", "Amazon.com"),
-    (330, "GBP", Decimal("150.00"), Decimal("18000.00"), "Dining", "THE IVY LONDON", "London", "The Ivy Covent Garden"),
-    (307, "EUR", Decimal("270.00"), Decimal("30000.00"), "Travel", "ACCOR HOTELS PARIS", "Paris", "Accor Hotels Paris"),
-    (285, "USD", Decimal("250.00"), Decimal("22000.00"), "Travel", "MARRIOTT DUBAI INTL", "Dubai", "Marriott Dubai International"),
-    (264, "EUR", Decimal("150.00"), Decimal("15000.00"), "Dining", "CAFE DE PARIS SARL", "Paris", "Cafe de Paris"),
-    (229, "GBP", Decimal("250.00"), Decimal("28000.00"), "Travel", "BRITISH AIRWAYS PLC", "London Heathrow Airport", "British Airways Terminal 5"),
-    (193, "USD", Decimal("220.00"), Decimal("20000.00"), "Shopping", "APPLE STORE R512 NYC", "New York", "Apple Store Fifth Avenue"),
-    (169, "SGD", Decimal("400.00"), Decimal("32000.00"), "Dining", "MARINA BAY SANDS SG", "Singapore", "Marina Bay Sands"),
-    (153, "USD", Decimal("280.00"), Decimal("24000.00"), "Transport", "UBER TRIP US SF", "San Francisco", "Uber App"),
-    (129, "EUR", Decimal("190.00"), Decimal("19000.00"), "Shopping", "GALERIES LAFAYETTE PARIS", "Paris", "Galeries Lafayette"),
-    (111, "GBP", Decimal("210.00"), Decimal("26000.00"), "Travel", "HILTON LONDON METROPOLE", "London", "Hilton London Metropole"),
-    (85, "USD", Decimal("240.00"), Decimal("21000.00"), "Dining", "NOBU RESTAURANT NYC", "New York", "Nobu Restaurant"),
-    (63, "EUR", Decimal("160.00"), Decimal("17000.00"), "Shopping", "ZARA ESPANA SA", "Madrid", "Zara Gran Via"),
-    (50, "EUR", Decimal("353.00"), Decimal("32000.00"), "Travel", WISDOM_PROPERTY_DESCRIPTOR, "Amsterdam", "DoubleTree by Hilton Amsterdam"),
-    (26, "USD", Decimal("580.00"), Decimal("51000.00"), "Travel", "EMIRATES AIRLINE NYC", "New York", "Emirates Airline JFK"),
-]
+# Deliberately empty: this used to hold 15 scripted demo forex transactions
+# (days_ago, currency, fx_amount, inr_amount, category, narration,
+# merchant_location, kiosk) summing to INR 380,000, dropped from the
+# canonical demo dataset. seed_demo_data() prunes any such SEED-FX-* rows
+# left over from when this list was populated, on every run.
+_FOREX_TRANSACTIONS: list[tuple] = []
 
 FOREX_MARKUP_PCT = Decimal("3.5")
 GST_RATE = Decimal("0.18")
@@ -168,7 +149,9 @@ class SeedResult:
     cards_inserted: int = 0
     customers_inserted: int = 0
     transactions_inserted: int = 0
+    transactions_pruned: int = 0
     service_requests_inserted: int = 0
+    service_requests_pruned: int = 0
     customer_360_inserted: int = 0
     skipped: int = 0
     errors: list[str] = field(default_factory=list)
@@ -492,9 +475,32 @@ def _seed_transactions(
     is a single consistent running total across the whole history, starting
     from a balance comfortably larger than total withdrawals (1.1x the sum)
     rather than a hardcoded guess.
+
+    Also prunes any previously-seeded transaction under this account that no
+    longer appears in the current source data (e.g. a row dropped from
+    _FOREX_TRANSACTIONS or data/transactionlist.py), so a database that was
+    seeded from an older version of this file converges to match the current
+    code on every re-run -- this is what lets `server.py` call seed_demo_data()
+    on every startup instead of needing a one-off manual fix per deployment.
+    Scoped strictly to account_number (the demo account), never touching
+    the real imported statement seeded under a different account.
     """
     all_rows = _build_forex_rows(as_of) + _build_imported_rows()
     all_rows.sort(key=lambda r: r["txn_date"])
+
+    expected_reference_nos = {row["reference_no"] for row in all_rows}
+    stale_transactions = (
+        session.query(Transaction)
+        .filter(
+            Transaction.account_number == account_number,
+            ~Transaction.reference_no.in_(expected_reference_nos),
+        )
+        .all()
+    )
+    for txn in stale_transactions:
+        session.query(Dispute).filter_by(transaction_id=txn.id).delete(synchronize_session=False)
+        session.delete(txn)
+        result.transactions_pruned += 1
 
     running_balance = (sum((r["withdrawal_amount"] for r in all_rows), Decimal("0")) * Decimal("1.1")).quantize(
         Decimal("0.01")
@@ -560,6 +566,30 @@ def _seed_service_request(session: Session, customer_id: int, result: SeedResult
     session.flush()
     result.service_requests_inserted += 1
     return service_request
+
+
+def _prune_stale_service_requests(
+    session: Session, customer_id: int, canonical_service_request_id: str, result: SeedResult
+) -> None:
+    """Delete any service request for this customer other than the canonical
+    one, e.g. a row left over from an older version of this script that used
+    a different service_request_id. Without this, get_latest_service_request
+    (which picks the single row with the latest service_request_date) can
+    keep surfacing a stale id forever, since _seed_service_request only ever
+    looks up/inserts by the current canonical id and never touches rows
+    under any other id.
+    """
+    stale = (
+        session.query(ServiceRequest)
+        .filter(
+            ServiceRequest.customer_id == customer_id,
+            ServiceRequest.service_request_id != canonical_service_request_id,
+        )
+        .all()
+    )
+    for stale_request in stale:
+        session.delete(stale_request)
+        result.service_requests_pruned += 1
 
 
 def _seed_customer_360(
@@ -643,19 +673,23 @@ def seed_demo_data(
         _seed_transactions(session, account_number, card.id, merchant.id, result, resolved_as_of)
         service_request = _seed_service_request(session, customer.id, result)
         _seed_customer_360(session, customer.id, account_number, service_request.id, credit_product.id, result)
+        _prune_stale_service_requests(session, customer.id, service_request.service_request_id, result)
 
         session.commit()
 
     logger.info(
         "seed_demo_data complete: merchants=%s aliases=%s card_products=%s cards=%s "
-        "customers=%s transactions=%s service_requests=%s customer_360=%s skipped=%s errors=%s",
+        "customers=%s transactions=%s transactions_pruned=%s service_requests=%s "
+        "service_requests_pruned=%s customer_360=%s skipped=%s errors=%s",
         result.merchants_inserted,
         result.aliases_inserted,
         result.card_products_inserted,
         result.cards_inserted,
         result.customers_inserted,
         result.transactions_inserted,
+        result.transactions_pruned,
         result.service_requests_inserted,
+        result.service_requests_pruned,
         result.customer_360_inserted,
         result.skipped,
         len(result.errors),
@@ -672,7 +706,10 @@ def main() -> None:
         f"Merchants: {result.merchants_inserted}, Aliases: {result.aliases_inserted}, "
         f"Card products: {result.card_products_inserted}, Cards: {result.cards_inserted}, "
         f"Customers: {result.customers_inserted}, Transactions: {result.transactions_inserted}, "
-        f"Service requests: {result.service_requests_inserted}, Customer 360: {result.customer_360_inserted}, "
+        f"Transactions pruned: {result.transactions_pruned}, "
+        f"Service requests: {result.service_requests_inserted}, "
+        f"Service requests pruned: {result.service_requests_pruned}, "
+        f"Customer 360: {result.customer_360_inserted}, "
         f"Skipped: {result.skipped}, Errors: {len(result.errors)}"
     )
     for err in result.errors:

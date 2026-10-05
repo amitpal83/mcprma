@@ -128,11 +128,11 @@ _CUSTOMER_360_SOURCE_JSON: dict = {
         },
     ],
     "latest_service_requests": {
-        "service_request_id": "SR1156788-20261001",
+        "service_request_id": "SR16788",
         "service_request_type": "account_statement",
         "service_request_date": "2026-10-01",
         "service_request_status": "under progress",
-        "service_request_details": "Dispatched via courier, expected delivery by 2026-10-07",
+        "service_request_details": "Account Statement has been Dispatched via courier, expected delivery by 2026-10-07",
         "service_request_delivery_address_type": "Bank Branch",
     },
     "current_instruments": [

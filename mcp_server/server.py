@@ -1,20 +1,11 @@
 """MCP server exposing the RMA "Digital RM Twin" account/card/customer tools
-over HTTP/SSE: transactions, cards and the card-product catalogue, customer
-profile and customer-360, service requests, disputes, card recommendations,
-and card applications.
-
-Policy note: MCP servers must be reviewed and approved by BCG IT/Security
-(CT GenAI Workspace Squad) before being registered or pointed at real data
-via a client such as PortKey. This module is for local build/test only
-until that approval is confirmed.
+over Streamable HTTP: transactions, cards and the card-product catalogue,
+customer profile and customer-360, service requests, disputes, card
+recommendations, and card applications.
 
 Run locally with:
-    python -m mcp_server.server
-This starts an SSE endpoint at http://<host>:<port>/sse (defaults below,
-overridable via the MCP_HOST / MCP_PORT environment variables). A running
-server process does not pick up source changes on its own -- restart it
-after editing this file, or a client's tool catalogue/docstrings will keep
-showing the old, already-running version.
+This starts a Streamable HTTP endpoint at http://<host>:<port>/mcp (defaults
+below, overridable via the MCP_HOST / MCP_PORT environment variables). 
 """
 from __future__ import annotations
 
@@ -93,9 +84,10 @@ mcp = MCPServer(name="rma-account-statements")
 
 class BearerTokenMiddleware:
     """Pure-ASGI middleware requiring 'Authorization: Bearer <token>' on every
-    HTTP request. Pure-ASGI (not Starlette's BaseHTTPMiddleware) deliberately
+    HTTP request. 
     -- it only inspects headers and never touches the request/response body,
-    so it can't interfere with the SSE endpoint's long-lived streaming.
+    so it can't interfere with the Streamable HTTP endpoint's long-lived
+    streaming responses.
     """
 
     def __init__(self, app: ASGIApp, token: str) -> None:
@@ -143,8 +135,7 @@ def fetch_account_transactions(
     """Core lookup backing the MCP tool below.
 
     Kept as a plain function (independent of the MCP transport) so it can be
-    called directly from tests with an injected session_factory, the same
-    pattern used in etl/excel_importer.py and api/repository.py.
+    called directly from tests with an injected session_factory.
     """
     factory = session_factory or SessionLocal
     parsed_from = _parse_iso_date(from_date, "from_date")
@@ -167,11 +158,7 @@ def fetch_account_transactions(
 def get_account_txn_details(account_number: str, from_date: str, to_date: str) -> dict[str, Any]:
     """Get every statement line for an account within an inclusive date range.
 
-    Includes both plain bank-narration rows (UPI/IMPS/ACH) and debit-card
-    rows; a credit card never appears here (see create_card_application /
-    get_card_application_status instead -- credit cards aren't tracked as a
-    transaction ledger in this system).
-
+   
     Args:
         account_number: The account number to look up, e.g. "8552".
         from_date: Start of the range (inclusive), ISO format "YYYY-MM-DD".
@@ -221,10 +208,7 @@ def list_account_cards(account_number: str) -> dict[str, Any]:
 
     Returns:
         {"result": [...]} -- a list of card objects, each with: id (the
-        internal card id, returned for reference only -- every other tool is
-        account-scoped and resolves its own cards internally),
-        account_number, card_product_id (FK into the catalogue -- see
-        get_card_product), last4, network (e.g. "Visa"), card_type
+        internal card id, last4, network (e.g. "Visa"), card_type
         ("debit"/"credit"), status (e.g. "active"), issued_at, created_at.
         `result` is `[]`, not an error, if the account has no cards.
 
@@ -265,47 +249,11 @@ def list_card_products(card_type: str | None = None, active_only: bool = True) -
         product_rewards_enabled, reward_transfer_partners (list of loyalty
         programs, [] if none), key_features (list of marketing bullet
         points), eligibility_criteria (list of requirements to qualify),
-        min_relationship_tier_for_discount / relationship_discount_pct (a
-        joining-fee discount a customer only gets if their relationship_tier
-        -- see get_customer_profile -- meets this minimum; see
-        get_account_recommendation for how that's applied), is_active,
-        created_at.
+        min_relationship_tier_for_discount / relationship_discount_pct 
     """
     logger.info("MCP tool call: list_card_products(%s, %s)", card_type, active_only)
     return {"result": fetch_card_products(card_type, active_only)}
 
-
-def fetch_card_product(card_product_id: int, session_factory: sessionmaker | None = None) -> dict:
-    factory = session_factory or SessionLocal
-    with factory() as session:
-        try:
-            product = query_get_card_product(session, card_product_id)
-        except CardProductNotFoundError as exc:
-            raise ToolError(str(exc)) from exc
-
-        return CardProductOut.model_validate(product).model_dump(mode="json")
-
-
-@mcp.tool()
-def get_card_product(card_product_id: int) -> dict[str, Any]:
-    """Get a single card product from the catalogue.
-
-    Args:
-        card_product_id: The product's internal id, e.g. 1. Get this from
-            list_card_products, or from the recommended_product.id in
-            get_account_recommendation.
-
-    Returns:
-        A card-product object -- see list_card_products for the full field
-        list (external_product_id, fees, forex_markup_pct, lounge/guest
-        visit allowances, reward_transfer_partners, key_features,
-        eligibility_criteria, discount eligibility, is_active).
-
-    Raises:
-        ToolError: card_product_id doesn't exist.
-    """
-    logger.info("MCP tool call: get_card_product(%s)", card_product_id)
-    return fetch_card_product(card_product_id)
 
 
 def fetch_account_card_transactions(
@@ -362,10 +310,7 @@ def search_account_transactions(
     """Search an account's card transactions by date range, optional amount range, and merchant text.
 
     Searches across every card linked to the account (merged and re-sorted
-    by date) -- you don't need to know a specific card_id. Use this instead
-    of get_account_txn_details when you want to filter by amount or
-    merchant; get_account_txn_details also includes plain bank-narration
-    rows that aren't tied to any card, which this tool excludes.
+    by date) -- you don't need to know a specific card_id. 
 
     Args:
         account_number: The account number to look up, e.g. "8552".
@@ -377,16 +322,20 @@ def search_account_transactions(
             you may not know which currency a remembered figure was in.
         amount_max: Optional maximum amount, e.g. "360".
         merchant_text: Optional free-text merchant search, e.g. "Wisdom
-            Property". Tries to resolve to a canonical merchant first (so
-            this matches even if the raw statement narration looks nothing
-            like it, e.g. "WISDOM PROPERTY NL II"); falls back to a
-            case-insensitive substring match against the raw narration if it
-            can't be resolved.
-
+            Property". 
     Returns:
-        {"result": [...]} -- a list of transaction objects (same shape as
-        get_account_txn_details), ordered oldest-first across all of the
-        account's cards. `result` is `[]`, not an error, when nothing
+        a list of transaction objects ordered
+        oldest-first, each with: id, account_number, txn_date, value_date,
+        narration (raw statement descriptor), reference_no,
+        withdrawal_amount/deposit_amount (INR), closing_balance (INR,
+        running balance after this line), card_id (set only on debit-card
+        rows), merchant_id (set only when the narration resolved to a
+        canonical merchant), category, and a set of forex fields --
+        txn_currency, txn_amount, exchange_rate, forex_markup_pct,
+        forex_markup_amount, gst_on_markup -- all null unless this was a
+        foreign-currency card spend. `result` is `[]`, not an error, when
+        nothing matches.
+        `result` is `[]`, not an error, when nothing
         matches (including when the account has no cards) -- an empty
         result means "no transactions found", not a failed search.
 
@@ -456,8 +405,7 @@ def get_account_forex_summary(account_number: str, as_of_date: str | None = None
 
     Aggregates across every card linked to the account. Only counts
     transactions that actually carried forex markup (i.e. had a
-    txn_currency set) -- domestic spend is excluded entirely. This is the
-    same spend figure get_account_recommendation projects savings from.
+    txn_currency set) -- domestic spend is excluded entirely. 
 
     Args:
         account_number: The account number to look up, e.g. "8552".
@@ -559,20 +507,15 @@ def fetch_customer_by_account(account_number: str, session_factory: sessionmaker
 
 @mcp.tool()
 def get_customer_profile(account_number: str) -> dict[str, Any]:
-    """Get an account's RM-facing customer profile: identity, relationship tier, delivery address.
+    """Get an account's  customer profile: identity, relationship tier, delivery address.
 
-    For the fuller 360-degree view (addresses list, instruments, the
-    standing next-best-offer), use get_customer_360 instead.
+    
 
     Args:
         account_number: The account number to look up, e.g. "8552".
 
     Returns:
-        A customer object: id (use this as customer_id elsewhere, e.g.
-        update_customer_delivery_preference, create_card_application),
-        account_number, full_name, relationship_tier (e.g. "STANDARD",
-        "PRIORITY", "PREMIUM", "PRIVATE" -- determines eligibility for
-        card-product discounts, see get_account_recommendation),
+        A customer object: id ,
         registered_email_masked / alt_email_masked / email_work_masked /
         email_personal_masked (local part obscured, domain visible, e.g.
         "wor***@email.com" -- the raw email is never returned),
@@ -603,10 +546,7 @@ def get_customer_360(account_number: str) -> dict[str, Any]:
     address, every current banking instrument, and the standing next-best-offer.
 
     This is a denormalized, point-in-time snapshot (not a live view) built
-    from the customer's own profile plus whatever source data it was seeded
-    from -- for the always-current RM-facing profile fields alone, use
-    get_customer_profile; for a live-computed recommendation instead of the
-    stored next_best_offer, use get_account_recommendation.
+    from the customer's own profile 
 
     Args:
         account_number: The account number to look up, e.g. "8552".
@@ -645,7 +585,7 @@ def fetch_latest_service_request(account_number: str, session_factory: sessionma
 
 @mcp.tool()
 def get_latest_service_request(account_number: str) -> dict[str, Any]:
-    """Get an account's most recent service request (e.g. a statement/document dispatch, card replacement).
+    """Get an account's most recent service request 
 
     "Most recent" means the single request with the latest
     service_request_date -- this does not return the full history.
@@ -654,9 +594,8 @@ def get_latest_service_request(account_number: str) -> dict[str, Any]:
         account_number: The account number to look up, e.g. "8552".
 
     Returns:
-        A service-request object: id, customer_id, service_request_id (the
-        business-facing id, e.g. "SR1156788-20261001"), service_request_type
-        (e.g. "account_statement"), service_request_date,
+        A service-request object: id, customer_id, service_request_id , service_request_type
+        , service_request_date,
         service_request_status (e.g. "under progress", "closed"),
         service_request_details (free text, e.g. courier/delivery notes),
         service_request_delivery_address_type, created_at, updated_at.
@@ -669,47 +608,6 @@ def get_latest_service_request(account_number: str) -> dict[str, Any]:
     return fetch_latest_service_request(account_number)
 
 
-def fetch_update_customer_delivery_preference(
-    customer_id: int,
-    preferred_delivery_address_type: str,
-    session_factory: sessionmaker | None = None,
-) -> dict[str, Any]:
-    factory = session_factory or SessionLocal
-    with factory() as session:
-        try:
-            customer = query_update_customer_delivery_preference(
-                session, customer_id, preferred_delivery_address_type
-            )
-        except (InvalidDeliveryAddressTypeError, CustomerNotFoundError) as exc:
-            raise ToolError(str(exc)) from exc
-
-        return CustomerOut.model_validate(customer).model_dump(mode="json")
-
-
-@mcp.tool()
-def update_customer_delivery_preference(customer_id: int, preferred_delivery_address_type: str) -> dict[str, Any]:
-    """Update which address a customer prefers for card/document delivery. This writes to the database.
-
-    Args:
-        customer_id: The customer's internal id, e.g. 1. Get this from
-            get_customer_profile's `id` field.
-        preferred_delivery_address_type: Either "OFFICE" or "HOME" (any
-            other value is rejected). This only changes the preference flag
-            -- it does not change delivery_address_office/_home themselves.
-
-    Returns:
-        The updated customer object, same shape as get_customer_profile.
-
-    Raises:
-        ToolError: preferred_delivery_address_type isn't "OFFICE" or "HOME",
-            or customer_id doesn't exist.
-    """
-    logger.info(
-        "MCP tool call: update_customer_delivery_preference(%s, %s)",
-        customer_id,
-        preferred_delivery_address_type,
-    )
-    return fetch_update_customer_delivery_preference(customer_id, preferred_delivery_address_type)
 
 
 def fetch_create_dispute(
@@ -729,7 +627,7 @@ def fetch_create_dispute(
 
 @mcp.tool()
 def create_dispute(transaction_id: int, reason: str) -> dict[str, Any]:
-    """Raise a dispute against a transaction. This writes to the database.
+    """Raise a dispute against a transaction. 
 
     A transaction can only have one OPEN dispute at a time -- withdraw the
     existing one first (see withdraw_dispute) if you need to re-raise.
@@ -751,35 +649,7 @@ def create_dispute(transaction_id: int, reason: str) -> dict[str, Any]:
     return fetch_create_dispute(transaction_id, reason)
 
 
-def fetch_withdraw_dispute(dispute_id: int, session_factory: sessionmaker | None = None) -> dict[str, Any]:
-    factory = session_factory or SessionLocal
-    with factory() as session:
-        try:
-            dispute = query_withdraw_dispute(session, dispute_id)
-        except (DisputeNotFoundError, DisputeNotOpenError) as exc:
-            raise ToolError(str(exc)) from exc
 
-        return DisputeOut.model_validate(dispute).model_dump(mode="json")
-
-
-@mcp.tool()
-def withdraw_dispute(dispute_id: int) -> dict[str, Any]:
-    """Withdraw an open dispute (e.g. the customer recognizes the charge). This writes to the database.
-
-    Args:
-        dispute_id: The dispute's internal id (the `id` field returned by
-            create_dispute), e.g. 1.
-
-    Returns:
-        The updated dispute object: id, transaction_id, status
-        ("WITHDRAWN"), reason, raised_at, resolved_at (now set).
-
-    Raises:
-        ToolError: dispute_id doesn't exist, or it isn't currently OPEN
-            (e.g. already withdrawn).
-    """
-    logger.info("MCP tool call: withdraw_dispute(%s)", dispute_id)
-    return fetch_withdraw_dispute(dispute_id)
 
 
 def fetch_account_recommendation(account_number: str, session_factory: sessionmaker | None = None) -> dict[str, Any]:
@@ -873,13 +743,11 @@ def create_card_application(
     card_product_id: int,
     delivery_address: str | None = None,
 ) -> dict[str, Any]:
-    """Submit a card application for a customer (e.g. accepting a get_account_recommendation pitch). This writes to the database.
+    """Submit a card application for a customer . 
 
     A given customer can only have one SUBMITTED application per
     card_product at a time -- submitting again for the same pair raises an
-    error rather than creating a duplicate. Any relationship-tier discount
-    the product is eligible for (see get_account_recommendation) is computed
-    and applied automatically; you don't pass it in.
+    error rather than creating a duplicate. 
 
     Args:
         customer_id: The customer's internal id, e.g. 1.
@@ -908,43 +776,12 @@ def create_card_application(
     return fetch_create_card_application(customer_id, card_product_id, delivery_address)
 
 
-def fetch_card_application_status(application_id: int, session_factory: sessionmaker | None = None) -> dict[str, Any]:
-    factory = session_factory or SessionLocal
-    with factory() as session:
-        try:
-            application = query_get_card_application_status(session, application_id)
-        except CardApplicationNotFoundError as exc:
-            raise ToolError(str(exc)) from exc
-
-        return CardApplicationOut.model_validate(application).model_dump(mode="json")
-
-
-@mcp.tool()
-def get_card_application_status(application_id: int) -> dict[str, Any]:
-    """Get a card application's current status.
-
-    Args:
-        application_id: The application's internal id (the `id` field
-            returned by create_card_application), e.g. 1.
-
-    Returns:
-        An application object: id, customer_id, card_product_id, status
-        (e.g. "SUBMITTED"), applied_at, discount_pct_applied, fee_charged,
-        delivery_address (the snapshot taken at submission time).
-
-    Raises:
-        ToolError: application_id doesn't exist.
-    """
-    logger.info("MCP tool call: get_card_application_status(%s)", application_id)
-    return fetch_card_application_status(application_id)
-
-
 def build_asgi_app() -> ASGIApp:
-    """The same Starlette app mcp.run(transport="sse", ...) builds internally
-    (mcp.sse_app(...)), optionally wrapped in bearer-token auth. Split out
-    from main() so tests can build and exercise it without starting uvicorn.
+    """The same app mcp.run(transport="streamable-http", ...) builds
+    internally (mcp.streamable_http_app(...)),  wrapped in
+    bearer-token auth. 
     """
-    app: ASGIApp = mcp.sse_app(host=DEFAULT_HOST)
+    app: ASGIApp = mcp.streamable_http_app(host=DEFAULT_HOST)
     if BEARER_TOKEN:
         app = BearerTokenMiddleware(app, token=BEARER_TOKEN)
     else:
@@ -959,7 +796,7 @@ def main() -> None:
     import uvicorn
 
     init_db()
-    logger.info("Starting MCP server (SSE transport) on %s:%s", DEFAULT_HOST, DEFAULT_PORT)
+    logger.info("Starting MCP server (Streamable HTTP transport) on %s:%s", DEFAULT_HOST, DEFAULT_PORT)
     config = uvicorn.Config(build_asgi_app(), host=DEFAULT_HOST, port=DEFAULT_PORT, log_level="info")
     uvicorn.Server(config).run()
 

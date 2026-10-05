@@ -18,7 +18,7 @@ Two gotchas in how results come back (confirmed against the real server):
 
 Setup:
     pip install mcp
-    export MCP_SERVER_URL="http://<host>:<port>/sse"
+    export MCP_SERVER_URL="http://<host>:<port>/mcp"
     export MCP_BEARER_TOKEN="<the token>"
 """
 from __future__ import annotations
@@ -26,8 +26,10 @@ from __future__ import annotations
 import asyncio
 import os
 
+import httpx2
+
 from mcp import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 def _unwrap(result) -> dict | list | None:
@@ -212,9 +214,10 @@ def connect():
                 await session.initialize()
                 cards = await list_account_cards(session, "ACC101")
     """
-    url = os.environ["MCP_SERVER_URL"]       # e.g. "http://<host>:8001/sse"
+    url = os.environ["MCP_SERVER_URL"]       # e.g. "http://<host>:8001/mcp"
     token = os.environ["MCP_BEARER_TOKEN"]
-    return sse_client(url, headers={"Authorization": f"Bearer {token}"})
+    http_client = httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"})
+    return streamable_http_client(url, http_client=http_client)
 
 
 async def main() -> None:

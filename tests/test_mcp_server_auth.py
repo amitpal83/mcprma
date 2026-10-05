@@ -1,7 +1,7 @@
 """Tests for the bearer-token auth layer added for remote (EC2) hosting.
 
 Exercises BearerTokenMiddleware directly against a minimal dummy ASGI app,
-rather than the real mcp.sse_app(), so these tests don't need a database and
+rather than the real mcp.streamable_http_app(), so these tests don't need a database and
 stay fast -- the middleware only inspects headers, it has no idea what's
 behind it.
 """
@@ -25,28 +25,28 @@ async def _ok_endpoint(request):
 
 @pytest.fixture
 def protected_client():
-    inner_app = Starlette(routes=[Route("/sse", _ok_endpoint)])
+    inner_app = Starlette(routes=[Route("/mcp", _ok_endpoint)])
     app = BearerTokenMiddleware(inner_app, token=TOKEN)
     return TestClient(app)
 
 
 def test_missing_auth_header_returns_401(protected_client):
-    response = protected_client.get("/sse")
+    response = protected_client.get("/mcp")
     assert response.status_code == 401
 
 
 def test_wrong_token_returns_401(protected_client):
-    response = protected_client.get("/sse", headers={"Authorization": "Bearer wrong-token"})
+    response = protected_client.get("/mcp", headers={"Authorization": "Bearer wrong-token"})
     assert response.status_code == 401
 
 
 def test_malformed_header_returns_401(protected_client):
-    response = protected_client.get("/sse", headers={"Authorization": TOKEN})  # missing "Bearer " prefix
+    response = protected_client.get("/mcp", headers={"Authorization": TOKEN})  # missing "Bearer " prefix
     assert response.status_code == 401
 
 
 def test_correct_token_passes_through(protected_client):
-    response = protected_client.get("/sse", headers={"Authorization": f"Bearer {TOKEN}"})
+    response = protected_client.get("/mcp", headers={"Authorization": f"Bearer {TOKEN}"})
     assert response.status_code == 200
     assert response.text == "ok"
 

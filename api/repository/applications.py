@@ -1,8 +1,8 @@
 """Card application lifecycle.
 
-Fee/discount computation reuses the same relationship-tier gating and
-GST-on-fee fallback as api.repository.cards.recommend_card_upgrade, so a
-customer applying for the card sees the same numbers the RM quoted them.
+Fee computation reuses the same GST-on-fee constant as
+api.repository.cards.recommend_card_upgrade, so a customer applying for the
+card sees the same numbers the RM quoted them.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from api.repository.cards import DEFAULT_GST_RATE, _tier_meets_minimum, get_card_product
+from api.repository.cards import DEFAULT_GST_RATE, get_card_product
 from api.repository.customers import CustomerNotFoundError
 from db.models import CardApplication, Customer
 
@@ -40,7 +40,7 @@ def create_card_application(
     card_product_id: int,
     delivery_address: str | None = None,
 ) -> CardApplication:
-    """Submit a card application, computing any relationship-tier discount.
+    """Submit a card application, charging the product's joining fee + GST.
 
     Commits internally (write function).
 
@@ -69,20 +69,11 @@ def create_card_application(
     if existing is not None:
         raise DuplicateApplicationError(customer_id, card_product_id)
 
-    discount_pct_applied = None
-    fee = product.joining_fee
-    if product.relationship_discount_pct is not None and _tier_meets_minimum(
-        customer.relationship_tier, product.min_relationship_tier_for_discount
-    ):
-        discount_pct_applied = product.relationship_discount_pct
-        fee = product.joining_fee * (Decimal("1") - discount_pct_applied / Decimal("100"))
-
-    fee_charged = (fee * (Decimal("1") + DEFAULT_GST_RATE)).quantize(Decimal("0.01"))
+    fee_charged = (product.joining_fee * (Decimal("1") + DEFAULT_GST_RATE)).quantize(Decimal("0.01"))
 
     application = CardApplication(
         customer_id=customer_id,
         card_product_id=card_product_id,
-        discount_pct_applied=discount_pct_applied,
         fee_charged=fee_charged,
         delivery_address=delivery_address,
     )

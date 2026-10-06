@@ -39,8 +39,6 @@ def client(tmp_path):
             card_type="credit",
             forex_markup_pct=0,
             joining_fee=Decimal("15000.00"),
-            relationship_discount_pct=Decimal("25.00"),
-            min_relationship_tier_for_discount="PRIORITY",
         )
         session.add_all([debit_product, zero_forex_product])
         session.flush()
@@ -60,14 +58,11 @@ def client(tmp_path):
                 account_number=ACCOUNT_NUMBER,
                 card_id=card.id,
                 txn_date=date.today(),
-                value_date=date.today(),
-                narration="WISDOM PROPERTY NL II",
-                withdrawal_amount=Decimal("32000.00"),
-                closing_balance=Decimal("100000.00"),
+                merchant="WISDOM PROPERTY NL II",
+                txn_amount_INR=Decimal("32000.00"),
                 txn_currency="EUR",
                 txn_amount=Decimal("353.00"),
-                forex_markup_amount=Decimal("1120.00"),
-                gst_on_markup=Decimal("201.60"),
+                forex_markup_amount_INR=Decimal("1120.00"),
                 category="Travel",
             )
         )
@@ -96,9 +91,7 @@ def test_get_card_recommendation(client):
     assert response.status_code == 200
     body = response.json()
     assert body["recommended_product"]["name"] == "Global Elite Zero Forex Card"
-    assert body["discount_pct_applied"] == "25.00"
     assert body["action_type"] == "cross_sell"
-    assert body["applicable_discounts"] == "25% on joining fee"
     assert "reason" in body and body["reason"]
 
 

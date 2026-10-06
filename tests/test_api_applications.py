@@ -35,8 +35,6 @@ def client(tmp_path):
             card_type="credit",
             forex_markup_pct=0,
             joining_fee=Decimal("15000.00"),
-            relationship_discount_pct=Decimal("25.00"),
-            min_relationship_tier_for_discount="PRIORITY",
         )
         session.add_all([customer, product])
         session.commit()
@@ -66,7 +64,8 @@ def test_submit_and_check_application(client):
     assert create_response.status_code == 201
     body = create_response.json()
     assert body["status"] == "SUBMITTED"
-    assert body["fee_charged"] == "13275.00"
+    # 15000 * 1.18 (DEFAULT_GST_RATE, no discount) = 17700.00
+    assert body["fee_charged"] == "17700.00"
 
     status_response = test_client.get(f"/card-applications/{body['id']}")
     assert status_response.status_code == 200

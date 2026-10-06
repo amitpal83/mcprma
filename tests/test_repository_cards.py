@@ -48,7 +48,6 @@ def seeded_session_factory(session_factory):
             annual_fee=15000,
             lounge_visits_domestic_per_year=None,
             lounge_visits_international_per_year=None,
-            guest_visits_per_year=12,
             reward_transfer_partners=encode_reward_transfer_partners(
                 ["Air India Maharaja Club", "Flying Blue", "Accor ALL"]
             ),

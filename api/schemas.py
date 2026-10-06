@@ -25,22 +25,16 @@ class TransactionOut(BaseModel):
     id: int
     account_number: str
     txn_date: date
-    value_date: date
-    narration: str
+    merchant: str
     reference_no: str | None
-    withdrawal_amount: Decimal | None
-    deposit_amount: Decimal | None
-    closing_balance: Decimal
+    txn_amount_INR: Decimal | None
     created_at: datetime
     card_id: int | None = None
-    merchant_id: int | None = None
-    txn_currency: str | None = None
+    card_type: str | None = None
+    txn_currency: str
     txn_amount: Decimal | None = None
     exchange_rate: Decimal | None = None
-    forex_markup_pct: Decimal | None = None
-    forex_markup_amount: Decimal | None = None
-    gst_on_markup: Decimal | None = None
-    mcc: str | None = None
+    forex_markup_amount_INR: Decimal | None = None
     category: str | None = None
 
 
@@ -52,8 +46,6 @@ class ForexSummaryOut(BaseModel):
     to_date: date
     total_forex_spend_inr: Decimal
     total_markup_amount: Decimal
-    total_gst_amount: Decimal
-    total_markup_and_gst: Decimal
     transaction_count: int
 
 
@@ -91,10 +83,7 @@ class CardProductOut(BaseModel):
     annual_fee: Decimal
     lounge_visits_domestic_per_year: int | None
     lounge_visits_international_per_year: int | None
-    guest_visits_per_year: int | None
     reward_transfer_partners: list[str]
-    min_relationship_tier_for_discount: str | None
-    relationship_discount_pct: Decimal | None
     is_active: bool
     created_at: datetime
     external_product_id: str | None = None
@@ -204,16 +193,14 @@ class CardRecommendationOut(BaseModel):
     current_card_id: int
     recommended_product: CardProductOut
     trailing_12mo_forex_spend_inr: Decimal
-    current_annual_markup_and_gst: Decimal
-    projected_annual_markup_and_gst: Decimal
+    current_annual_markup: Decimal
+    projected_annual_markup: Decimal
     projected_annual_savings: Decimal
     joining_fee: Decimal
     annual_fee: Decimal
-    discount_pct_applied: Decimal | None
-    net_joining_fee_after_discount: Decimal
+    net_joining_fee: Decimal
     action_type: str
     reason: str
-    applicable_discounts: str | None
 
 
 class ServiceRequestOut(BaseModel):
@@ -299,7 +286,6 @@ class CardApplicationOut(BaseModel):
     card_product_id: int
     status: str
     applied_at: datetime
-    discount_pct_applied: Decimal | None
     fee_charged: Decimal | None
     delivery_address: str | None
 

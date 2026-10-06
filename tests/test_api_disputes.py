@@ -26,12 +26,11 @@ def client(tmp_path):
         session.add(Account(account_number=ACCOUNT_NUMBER))
         session.add(
             Transaction(
+                txn_currency="INR",
                 account_number=ACCOUNT_NUMBER,
                 txn_date=date(2026, 8, 12),
-                value_date=date(2026, 8, 12),
-                narration="WISDOM PROPERTY NL II",
-                withdrawal_amount=Decimal("32000.00"),
-                closing_balance=Decimal("100000.00"),
+                merchant="WISDOM PROPERTY NL II",
+                txn_amount_INR=Decimal("32000.00"),
             )
         )
         session.commit()

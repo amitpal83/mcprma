@@ -30,7 +30,7 @@ def seeded_session_factory(tmp_path):
                 account_number=ACCOUNT_NUMBER,
                 txn_date=date(2026, 8, 12),
                 value_date=date(2026, 8, 12),
-                narration="WISDOM PROPERTY NL II",
+                merchant="WISDOM PROPERTY NL II",
                 withdrawal_amount=Decimal("32000.00"),
                 closing_balance=Decimal("100000.00"),
             )

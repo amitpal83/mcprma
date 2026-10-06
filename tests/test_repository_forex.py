@@ -66,17 +66,13 @@ def seeded_session_factory(session_factory):
                 Transaction(
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
-                    merchant_id=merchant.id,
                     txn_date=date(2026, 8, 12),
-                    value_date=date(2026, 8, 12),
-                    narration="WISDOM PROPERTY NL II",
+                    merchant="WISDOM PROPERTY NL II",
                     reference_no="SEED-FX-001",
-                    withdrawal_amount=Decimal("32000.00"),
-                    closing_balance=Decimal("100000.00"),
+                    txn_amount_INR=Decimal("32000.00"),
                     txn_currency="EUR",
                     txn_amount=Decimal("353.00"),
-                    forex_markup_amount=Decimal("1120.00"),
-                    gst_on_markup=Decimal("201.60"),
+                    forex_markup_amount_INR=Decimal("1120.00"),
                     category="Travel",
                 ),
                 # In-window forex txn, different merchant/category.
@@ -84,15 +80,12 @@ def seeded_session_factory(session_factory):
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
                     txn_date=date(2026, 5, 1),
-                    value_date=date(2026, 5, 1),
-                    narration="STARBUCKS COFFEE SG",
+                    merchant="STARBUCKS COFFEE SG",
                     reference_no="SEED-FX-002",
-                    withdrawal_amount=Decimal("8300.00"),
-                    closing_balance=Decimal("95000.00"),
+                    txn_amount_INR=Decimal("8300.00"),
                     txn_currency="USD",
                     txn_amount=Decimal("100.00"),
-                    forex_markup_amount=Decimal("290.50"),
-                    gst_on_markup=Decimal("52.29"),
+                    forex_markup_amount_INR=Decimal("290.50"),
                     category="Dining",
                 ),
                 # Forex txn, but older than 365 days before AS_OF -- excluded from summary.
@@ -100,28 +93,24 @@ def seeded_session_factory(session_factory):
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
                     txn_date=date(2025, 1, 1),
-                    value_date=date(2025, 1, 1),
-                    narration="OLD PARIS STORE",
+                    merchant="OLD PARIS STORE",
                     reference_no="SEED-FX-003",
-                    withdrawal_amount=Decimal("18000.00"),
-                    closing_balance=Decimal("90000.00"),
+                    txn_amount_INR=Decimal("18000.00"),
                     txn_currency="EUR",
                     txn_amount=Decimal("200.00"),
-                    forex_markup_amount=Decimal("630.00"),
-                    gst_on_markup=Decimal("113.40"),
+                    forex_markup_amount_INR=Decimal("630.00"),
                     category="Shopping",
                 ),
                 # Non-forex domestic spend -- excluded from forex summary,
                 # included in category breakdown.
                 Transaction(
+                    txn_currency="INR",
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
                     txn_date=date(2026, 7, 1),
-                    value_date=date(2026, 7, 1),
-                    narration="BIG BAZAAR MUMBAI",
+                    merchant="BIG BAZAAR MUMBAI",
                     reference_no="SEED-FX-004",
-                    withdrawal_amount=Decimal("500.00"),
-                    closing_balance=Decimal("85000.00"),
+                    txn_amount_INR=Decimal("500.00"),
                     category="Groceries",
                 ),
             ]
@@ -147,7 +136,7 @@ def test_search_by_amount_range_and_merchant_text_finds_disputed_txn(seeded_sess
         assert results[0].reference_no == "SEED-FX-001"
 
 
-def test_search_merchant_text_falls_back_to_narration_substring(seeded_session_factory):
+def test_search_merchant_text_falls_back_to_merchant_substring(seeded_session_factory):
     factory, card_id = seeded_session_factory
     with factory() as session:
         results = search_card_transactions(
@@ -196,8 +185,6 @@ def test_forex_summary_totals_trailing_365_days(seeded_session_factory):
         assert summary.transaction_count == 2
         assert summary.total_forex_spend_inr == Decimal("40300.00")
         assert summary.total_markup_amount == Decimal("1410.50")
-        assert summary.total_gst_amount == Decimal("253.89")
-        assert summary.total_markup_and_gst == Decimal("1664.39")
 
 
 def test_forex_summary_unknown_card_raises(seeded_session_factory):

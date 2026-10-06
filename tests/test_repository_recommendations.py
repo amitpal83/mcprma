@@ -40,8 +40,6 @@ def _seed(session, relationship_tier: str):
         forex_markup_pct=0,
         joining_fee=Decimal("15000.00"),
         annual_fee=Decimal("15000.00"),
-        relationship_discount_pct=Decimal("25.00"),
-        min_relationship_tier_for_discount="PRIORITY",
     )
     higher_markup_product = CardProduct(
         name="Some Other Credit Card", network="Visa", card_type="credit", forex_markup_pct=2.0
@@ -72,28 +70,22 @@ def _seed(session, relationship_tier: str):
                 account_number=ACCOUNT_NUMBER,
                 card_id=card.id,
                 txn_date=date.today().replace(day=1),
-                value_date=date.today().replace(day=1),
-                narration="WISDOM PROPERTY NL II",
-                withdrawal_amount=Decimal("32000.00"),
-                closing_balance=Decimal("100000.00"),
+                merchant="WISDOM PROPERTY NL II",
+                txn_amount_INR=Decimal("32000.00"),
                 txn_currency="EUR",
                 txn_amount=Decimal("353.00"),
-                forex_markup_amount=Decimal("1120.00"),
-                gst_on_markup=Decimal("201.60"),
+                forex_markup_amount_INR=Decimal("1120.00"),
                 category="Travel",
             ),
             Transaction(
                 account_number=ACCOUNT_NUMBER,
                 card_id=card.id,
                 txn_date=date.today(),
-                value_date=date.today(),
-                narration="STARBUCKS COFFEE SG",
-                withdrawal_amount=Decimal("8300.00"),
-                closing_balance=Decimal("95000.00"),
+                merchant="STARBUCKS COFFEE SG",
+                txn_amount_INR=Decimal("8300.00"),
                 txn_currency="USD",
                 txn_amount=Decimal("100.00"),
-                forex_markup_amount=Decimal("290.50"),
-                gst_on_markup=Decimal("52.29"),
+                forex_markup_amount_INR=Decimal("290.50"),
                 category="Dining",
             ),
         ]
@@ -109,13 +101,6 @@ def seeded_priority_customer(session_factory):
     return session_factory, card_id
 
 
-@pytest.fixture
-def seeded_standard_customer(session_factory):
-    with session_factory() as session:
-        card_id = _seed(session, relationship_tier="STANDARD")
-    return session_factory, card_id
-
-
 def test_recommends_lowest_markup_active_credit_product(seeded_priority_customer):
     factory, card_id = seeded_priority_customer
     with factory() as session:
@@ -128,29 +113,20 @@ def test_projected_savings_matches_hand_computed_total(seeded_priority_customer)
     with factory() as session:
         recommendation = recommend_card_upgrade(session, card_id)
         assert recommendation.trailing_12mo_forex_spend_inr == Decimal("40300.00")
-        assert recommendation.current_annual_markup_and_gst == Decimal("1664.39")
-        assert recommendation.projected_annual_markup_and_gst == Decimal("0.00")
-        assert recommendation.projected_annual_savings == Decimal("1664.39")
+        assert recommendation.current_annual_markup == Decimal("1410.50")
+        assert recommendation.projected_annual_markup == Decimal("0.00")
+        assert recommendation.projected_annual_savings == Decimal("1410.50")
 
 
-def test_discount_applied_for_matching_relationship_tier(seeded_priority_customer):
+def test_net_joining_fee_is_joining_fee_plus_gst(seeded_priority_customer):
+    """relationship_discount_pct was removed from CardProduct -- net_joining_fee
+    is always the undiscounted joining_fee + GST, regardless of the
+    customer's relationship tier."""
     factory, card_id = seeded_priority_customer
     with factory() as session:
         recommendation = recommend_card_upgrade(session, card_id)
-        assert recommendation.discount_pct_applied == Decimal("25.00")
-        # 15000 * 0.75 = 11250; 11250 * 1.18 (derived GST rate) = 13275.00
-        assert recommendation.net_joining_fee_after_discount == Decimal("13275.00")
-        assert recommendation.applicable_discounts == "25% on joining fee"
-
-
-def test_no_discount_for_non_matching_relationship_tier(seeded_standard_customer):
-    factory, card_id = seeded_standard_customer
-    with factory() as session:
-        recommendation = recommend_card_upgrade(session, card_id)
-        assert recommendation.discount_pct_applied is None
-        # 15000 * 1.18 = 17700.00, no discount applied
-        assert recommendation.net_joining_fee_after_discount == Decimal("17700.00")
-        assert recommendation.applicable_discounts is None
+        # 15000 * 1.18 (DEFAULT_GST_RATE) = 17700.00
+        assert recommendation.net_joining_fee == Decimal("17700.00")
 
 
 def test_action_type_is_cross_sell_from_debit_to_credit(seeded_priority_customer):
@@ -177,14 +153,11 @@ def test_reason_cites_high_forex_spending_above_threshold(seeded_priority_custom
                 account_number=ACCOUNT_NUMBER,
                 card_id=card_id,
                 txn_date=date.today(),
-                value_date=date.today(),
-                narration="BIG TICKET FOREX SPEND",
-                withdrawal_amount=Decimal("200000.00"),
-                closing_balance=Decimal("50000.00"),
+                merchant="BIG TICKET FOREX SPEND",
+                txn_amount_INR=Decimal("200000.00"),
                 txn_currency="USD",
                 txn_amount=Decimal("2400.00"),
-                forex_markup_amount=Decimal("7000.00"),
-                gst_on_markup=Decimal("1260.00"),
+                forex_markup_amount_INR=Decimal("7000.00"),
                 category="Shopping",
             )
         )

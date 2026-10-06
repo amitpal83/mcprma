@@ -13,6 +13,8 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
+from starlette.middleware.cors import CORSMiddleware
+
 import mcp_server.server as mcp_server_module
 from mcp_server.server import BearerTokenMiddleware, build_asgi_app
 
@@ -54,10 +56,12 @@ def test_correct_token_passes_through(protected_client):
 def test_build_asgi_app_wraps_with_middleware_when_token_set(monkeypatch):
     monkeypatch.setattr(mcp_server_module, "BEARER_TOKEN", TOKEN)
     app = build_asgi_app()
-    assert isinstance(app, BearerTokenMiddleware)
+    assert isinstance(app, CORSMiddleware)
+    assert isinstance(app.app, BearerTokenMiddleware)
 
 
 def test_build_asgi_app_skips_middleware_when_token_unset(monkeypatch):
     monkeypatch.setattr(mcp_server_module, "BEARER_TOKEN", None)
     app = build_asgi_app()
-    assert not isinstance(app, BearerTokenMiddleware)
+    assert isinstance(app, CORSMiddleware)
+    assert not isinstance(app.app, BearerTokenMiddleware)

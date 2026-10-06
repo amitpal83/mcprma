@@ -41,8 +41,6 @@ def _seed(session, relationship_tier: str) -> tuple[int, int]:
         card_type="credit",
         forex_markup_pct=0,
         joining_fee=Decimal("15000.00"),
-        relationship_discount_pct=Decimal("25.00"),
-        min_relationship_tier_for_discount="PRIORITY",
     )
     session.add_all([customer, product])
     session.commit()
@@ -56,30 +54,17 @@ def seeded_priority(session_factory):
     return session_factory, customer_id, product_id
 
 
-@pytest.fixture
-def seeded_standard(session_factory):
-    with session_factory() as session:
-        customer_id, product_id = _seed(session, "STANDARD")
-    return session_factory, customer_id, product_id
-
-
-def test_create_application_applies_discount_for_matching_tier(seeded_priority):
+def test_create_application_fee_is_joining_fee_plus_gst(seeded_priority):
+    """relationship_discount_pct was removed from CardProduct -- fee_charged
+    is always the undiscounted joining_fee + GST, regardless of the
+    customer's relationship tier."""
     factory, customer_id, product_id = seeded_priority
     with factory() as session:
         application = create_card_application(session, customer_id, product_id, delivery_address="Office, MG Road")
         assert application.status == "SUBMITTED"
-        assert application.discount_pct_applied == Decimal("25.00")
-        # 15000 * 0.75 = 11250; 11250 * 1.18 = 13275.00
-        assert application.fee_charged == Decimal("13275.00")
-        assert application.delivery_address == "Office, MG Road"
-
-
-def test_create_application_no_discount_for_non_matching_tier(seeded_standard):
-    factory, customer_id, product_id = seeded_standard
-    with factory() as session:
-        application = create_card_application(session, customer_id, product_id)
-        assert application.discount_pct_applied is None
+        # 15000 * 1.18 = 17700.00
         assert application.fee_charged == Decimal("17700.00")
+        assert application.delivery_address == "Office, MG Road"
 
 
 def test_create_application_unknown_customer_raises(seeded_priority):

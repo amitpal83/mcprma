@@ -14,8 +14,6 @@ from decimal import Decimal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from api.repository.customers import CustomerNotFoundError, get_customer_by_account
-from api.repository.merchants import MerchantNotResolvedError, resolve_merchant
 from api.repository.transactions import AccountNotFoundError, InvalidDateRangeError
 from db.models import Account, Card, CardProduct, Transaction
 
@@ -28,17 +26,6 @@ DEFAULT_GST_RATE = Decimal("0.18")
 # Ordinal ranking for "does this customer's tier meet the minimum required
 # for a discount" -- a simple, demo-scoped hierarchy, not a general-purpose
 # tier registry.
-_RELATIONSHIP_TIER_RANK = {"STANDARD": 0, "PRIORITY": 1, "PREMIUM": 2, "PRIVATE": 3}
-
-
-def _tier_meets_minimum(customer_tier: str | None, min_tier: str | None) -> bool:
-    if min_tier is None:
-        return True
-    if customer_tier is None:
-        return False
-    return _RELATIONSHIP_TIER_RANK.get(customer_tier, -1) >= _RELATIONSHIP_TIER_RANK.get(min_tier, 0)
-
-
 class CardNotFoundError(Exception):
     def __init__(self, card_id: int) -> None:
         self.card_id = card_id
@@ -56,6 +43,12 @@ class InvalidAmountRangeError(Exception):
         self.amount_min = amount_min
         self.amount_max = amount_max
         super().__init__(f"amount_min ({amount_min}) must not be greater than amount_max ({amount_max})")
+
+
+class InvalidTransactionTypeError(Exception):
+    def __init__(self, transaction_type: str) -> None:
+        self.transaction_type = transaction_type
+        super().__init__(f'transaction_type must be "domestic" or "international", got: {transaction_type!r}')
 
 
 def decode_reward_transfer_partners(raw: str | None) -> list[str]:
@@ -174,14 +167,12 @@ def search_card_transactions(
     """Search a card's transactions by date range, optional amount range, and merchant text.
 
     amount_min/amount_max match against EITHER the original foreign-currency
-    amount (txn_amount) OR the INR-settled amount (withdrawal_amount), since
+    amount (txn_amount) OR the INR-settled amount (txn_amount_INR), since
     a caller searching "~350" doesn't know in advance which currency the
     transaction they're thinking of was in.
 
-    merchant_text first tries to resolve to a canonical merchant (so
-    "Wisdom Property" finds a transaction whose raw narration is "WISDOM
-    PROPERTY NL II"); if it can't be resolved, falls back to a
-    case-insensitive substring match against the raw narration.
+    merchant_text is a case-insensitive substring match against the raw
+    merchant text (e.g. "Wisdom Property" matches "WISDOM PROPERTY NL II").
 
     Raises:
         CardNotFoundError: if card_id doesn't exist.
@@ -202,7 +193,7 @@ def search_card_transactions(
 
     if amount_min is not None or amount_max is not None:
         conditions = []
-        for column in (Transaction.txn_amount, Transaction.withdrawal_amount):
+        for column in (Transaction.txn_amount, Transaction.txn_amount_INR):
             condition = column.isnot(None)
             if amount_min is not None:
                 condition = condition & (column >= amount_min)
@@ -212,12 +203,7 @@ def search_card_transactions(
         query = query.filter(or_(*conditions))
 
     if merchant_text:
-        try:
-            merchant = resolve_merchant(session, merchant_text)
-        except MerchantNotResolvedError:
-            query = query.filter(Transaction.narration.ilike(f"%{merchant_text}%"))
-        else:
-            query = query.filter(Transaction.merchant_id == merchant.id)
+        query = query.filter(Transaction.merchant.ilike(f"%{merchant_text}%"))
 
     transactions = query.order_by(Transaction.txn_date, Transaction.id).all()
     logger.info(
@@ -240,8 +226,6 @@ class ForexSummary:
     to_date: date
     total_forex_spend_inr: Decimal
     total_markup_amount: Decimal
-    total_gst_amount: Decimal
-    total_markup_and_gst: Decimal
     transaction_count: int
 
 
@@ -259,25 +243,23 @@ def get_card_forex_summary(session: Session, card_id: int, as_of_date: date | No
         session.query(Transaction)
         .filter(
             Transaction.card_id == card_id,
-            Transaction.txn_currency.isnot(None),
+            Transaction.txn_currency != "INR",
             Transaction.txn_date >= window_start,
             Transaction.txn_date <= as_of,
         )
         .all()
     )
 
-    total_spend = sum((row.withdrawal_amount or Decimal("0") for row in rows), Decimal("0"))
-    total_markup = sum((row.forex_markup_amount or Decimal("0") for row in rows), Decimal("0"))
-    total_gst = sum((row.gst_on_markup or Decimal("0") for row in rows), Decimal("0"))
+    total_spend = sum((row.txn_amount_INR or Decimal("0") for row in rows), Decimal("0"))
+    total_markup = sum((row.forex_markup_amount_INR or Decimal("0") for row in rows), Decimal("0"))
 
     logger.info(
-        "get_card_forex_summary: card=%s window=[%s,%s] -> spend=%s markup=%s gst=%s (%s txns)",
+        "get_card_forex_summary: card=%s window=[%s,%s] -> spend=%s markup=%s (%s txns)",
         card_id,
         window_start,
         as_of,
         total_spend,
         total_markup,
-        total_gst,
         len(rows),
     )
     return ForexSummary(
@@ -286,8 +268,6 @@ def get_card_forex_summary(session: Session, card_id: int, as_of_date: date | No
         to_date=as_of,
         total_forex_spend_inr=total_spend,
         total_markup_amount=total_markup,
-        total_gst_amount=total_gst,
-        total_markup_and_gst=total_markup + total_gst,
         transaction_count=len(rows),
     )
 
@@ -315,14 +295,14 @@ def get_card_category_breakdown(
     rows = (
         session.query(
             Transaction.category,
-            func.sum(Transaction.withdrawal_amount),
+            func.sum(Transaction.txn_amount_INR),
             func.count(Transaction.id),
         )
         .filter(
             Transaction.card_id == card_id,
             Transaction.txn_date >= from_date,
             Transaction.txn_date <= to_date,
-            Transaction.withdrawal_amount.isnot(None),
+            Transaction.txn_amount_INR.isnot(None),
         )
         .group_by(Transaction.category)
         .all()
@@ -332,6 +312,63 @@ def get_card_category_breakdown(
         CategorySpend(category=category, total_amount=total or Decimal("0"), transaction_count=count)
         for category, total, count in rows
     ]
+
+
+@dataclass
+class SpendSummary:
+    total_amount: Decimal
+    total_forex_markup_amount_INR: Decimal
+    transaction_count: int
+
+
+def get_card_spend_summary(
+    session: Session,
+    card_id: int,
+    from_date: date,
+    to_date: date,
+    transaction_type: str,
+    category: str | None = None,
+) -> SpendSummary:
+    """Aggregate a card's spend and forex markup over a date range, filtered
+    by mandatory transaction_type ("domestic"/"international",
+    case-insensitive) and optional category.
+
+    Unlike get_card_category_breakdown, this never groups by category -- it
+    always returns one aggregate row for whatever filters were given.
+
+    Raises:
+        CardNotFoundError: if card_id doesn't exist.
+        InvalidDateRangeError: if from_date is after to_date.
+        InvalidTransactionTypeError: if transaction_type isn't "domestic" or
+            "international" (case-insensitive).
+    """
+    get_card(session, card_id)
+    if from_date > to_date:
+        raise InvalidDateRangeError(from_date, to_date)
+
+    normalized_type = transaction_type.strip().lower()
+    if normalized_type not in ("domestic", "international"):
+        raise InvalidTransactionTypeError(transaction_type)
+
+    query = session.query(
+        func.sum(Transaction.txn_amount_INR),
+        func.sum(Transaction.forex_markup_amount_INR),
+        func.count(Transaction.id),
+    ).filter(
+        Transaction.card_id == card_id,
+        Transaction.txn_date >= from_date,
+        Transaction.txn_date <= to_date,
+        Transaction.transaction_type == normalized_type,
+    )
+    if category is not None:
+        query = query.filter(Transaction.category == category)
+
+    total_amount, total_forex_markup, count = query.one()
+    return SpendSummary(
+        total_amount=total_amount or Decimal("0"),
+        total_forex_markup_amount_INR=total_forex_markup or Decimal("0"),
+        transaction_count=count or 0,
+    )
 
 
 class NoEligibleCardProductError(Exception):
@@ -351,16 +388,14 @@ class CardRecommendation:
     current_card_id: int
     recommended_product: CardProduct
     trailing_12mo_forex_spend_inr: Decimal
-    current_annual_markup_and_gst: Decimal
-    projected_annual_markup_and_gst: Decimal
+    current_annual_markup: Decimal
+    projected_annual_markup: Decimal
     projected_annual_savings: Decimal
     joining_fee: Decimal
     annual_fee: Decimal
-    discount_pct_applied: Decimal | None
-    net_joining_fee_after_discount: Decimal
+    net_joining_fee: Decimal
     action_type: str
     reason: str
-    applicable_discounts: str | None
 
 
 def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation:
@@ -368,14 +403,11 @@ def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation
     annual savings, using the card's own trailing-12-month forex history.
 
     The candidate is the active credit product with the lowest forex markup
-    below the current card's (tie-break: lowest annual fee). The projection
-    reuses the *current* card's own derived GST-on-markup rate (gst/markup
-    from its trailing 12 months) rather than a hardcoded rate, so it stays
-    consistent with whatever real data backs it; a fallback constant
-    (DEFAULT_GST_RATE) only applies if the card has no forex history yet.
-    A relationship-tier discount on the joining fee is applied if the
-    customer's profile tier meets the candidate's minimum, then GST is
-    added back on the net fee.
+    below the current card's (tie-break: lowest annual fee). Savings are
+    markup-only (transactions no longer carry a stored GST figure).
+    net_joining_fee is the candidate's own joining_fee with GST
+    (DEFAULT_GST_RATE) added on top -- there is no relationship-tier
+    discount anymore.
 
     Raises:
         CardNotFoundError: if card_id doesn't exist.
@@ -400,43 +432,18 @@ def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation
 
     forex_summary = get_card_forex_summary(session, card_id)
     trailing_spend = forex_summary.total_forex_spend_inr
-    current_total = forex_summary.total_markup_amount + forex_summary.total_gst_amount
-
-    if forex_summary.total_markup_amount > 0:
-        effective_gst_rate = forex_summary.total_gst_amount / forex_summary.total_markup_amount
-    else:
-        effective_gst_rate = DEFAULT_GST_RATE
+    current_total = forex_summary.total_markup_amount
 
     projected_markup = (trailing_spend * candidate.forex_markup_pct / Decimal("100")).quantize(Decimal("0.01"))
-    projected_gst = (projected_markup * effective_gst_rate).quantize(Decimal("0.01"))
-    projected_total = projected_markup + projected_gst
-    projected_savings = current_total - projected_total
+    projected_savings = current_total - projected_markup
 
-    try:
-        customer_tier = get_customer_by_account(session, card.account_number).relationship_tier
-    except CustomerNotFoundError:
-        customer_tier = None
-
-    discount_pct_applied = None
-    discounted_joining_fee = candidate.joining_fee
-    if candidate.relationship_discount_pct is not None and _tier_meets_minimum(
-        customer_tier, candidate.min_relationship_tier_for_discount
-    ):
-        discount_pct_applied = candidate.relationship_discount_pct
-        discounted_joining_fee = candidate.joining_fee * (Decimal("1") - discount_pct_applied / Decimal("100"))
-
-    net_joining_fee_after_discount = (discounted_joining_fee * (Decimal("1") + effective_gst_rate)).quantize(
-        Decimal("0.01")
-    )
+    net_joining_fee = (candidate.joining_fee * (Decimal("1") + DEFAULT_GST_RATE)).quantize(Decimal("0.01"))
 
     action_type = "cross_sell" if candidate.card_type != current_product.card_type else "upgrade"
-    applicable_discounts = (
-        f"{discount_pct_applied.normalize()}% on joining fee" if discount_pct_applied is not None else None
-    )
     if trailing_spend >= HIGH_FOREX_SPEND_THRESHOLD_INR:
         reason = (
             f"HIGH FOREX Spending: INR {trailing_spend:,.2f} spent abroad in the trailing 12 months, "
-            f"costing INR {current_total:,.2f} in forex markup + GST"
+            f"costing INR {current_total:,.2f} in forex markup"
         )
     else:
         reason = (
@@ -455,14 +462,12 @@ def recommend_card_upgrade(session: Session, card_id: int) -> CardRecommendation
         current_card_id=card_id,
         recommended_product=candidate,
         trailing_12mo_forex_spend_inr=trailing_spend,
-        current_annual_markup_and_gst=current_total,
-        projected_annual_markup_and_gst=projected_total,
+        current_annual_markup=current_total,
+        projected_annual_markup=projected_markup,
         projected_annual_savings=projected_savings,
         joining_fee=candidate.joining_fee,
         annual_fee=candidate.annual_fee,
-        discount_pct_applied=discount_pct_applied,
-        net_joining_fee_after_discount=net_joining_fee_after_discount,
+        net_joining_fee=net_joining_fee,
         action_type=action_type,
         reason=reason,
-        applicable_discounts=applicable_discounts,
     )

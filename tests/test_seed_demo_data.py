@@ -37,25 +37,26 @@ def test_seed_inserts_expected_rows(session_factory):
     assert result.card_products_inserted == 2
     assert result.cards_inserted == 1
     assert result.customers_inserted == 1
-    assert result.transactions_inserted == 380  # 15 scripted forex rows + 365 imported from data/transactionlist.py
+    assert result.transactions_inserted == 365  # imported from data/transactionlist.py (no scripted forex rows anymore)
     assert result.service_requests_inserted == 1
     assert result.customer_360_inserted == 1
     assert result.errors == []
 
 
-def test_wisdom_property_transaction_resolves_to_doubletree(session_factory):
+def test_wisdom_property_alias_still_resolves_though_no_transaction_uses_it(session_factory):
+    """The merchant alias is seeded unconditionally (for fuzzy-matching), but
+    the dedicated demo forex batch that used to create a transaction under
+    this exact descriptor was deliberately dropped -- so the alias resolves,
+    yet no transaction references it anymore.
+    """
     seed_demo_data(session_factory=session_factory, as_of=AS_OF)
 
     with session_factory() as session:
         merchant = resolve_merchant(session, WISDOM_PROPERTY_DESCRIPTOR)
         assert merchant.brand_name == "DoubleTree by Hilton Amsterdam Centraal Station"
 
-        txn = session.query(Transaction).filter_by(narration=WISDOM_PROPERTY_DESCRIPTOR).first()
-        assert txn is not None
-        assert txn.txn_currency == "EUR"
-        assert txn.txn_amount == Decimal("353.00")
-        assert txn.withdrawal_amount == Decimal("32000.00")
-        assert txn.merchant_id == merchant.id
+        txn = session.query(Transaction).filter_by(merchant=WISDOM_PROPERTY_DESCRIPTOR).first()
+        assert txn is None
 
 
 def test_reseed_is_idempotent(session_factory):
@@ -74,10 +75,9 @@ def test_reseed_is_idempotent(session_factory):
 
 
 def test_forex_summary_reflects_merged_transaction_history(session_factory):
-    """Trailing-365-day forex summary now spans both the 15 scripted rows and
-    the 365-day data/transactionlist.py import, so the total is well above
-    the old 15-row-only script figures (~Rs.3.8L) -- it reflects Vipul
-    Singh's full imported spending history instead.
+    """Trailing-365-day forex summary spans the 365-day data/transactionlist.py
+    import (no scripted forex rows anymore), so it reflects Vipul Singh's
+    full imported spending history as-is.
     """
     seed_demo_data(session_factory=session_factory, as_of=AS_OF)
 
@@ -85,6 +85,6 @@ def test_forex_summary_reflects_merged_transaction_history(session_factory):
         card = session.query(Card).filter_by(account_number=DEFAULT_DEMO_ACCOUNT_NUMBER).first()
         summary = get_card_forex_summary(session, card.id, as_of_date=AS_OF)
 
-        assert summary.total_forex_spend_inr == Decimal("3301477.97")
-        assert summary.total_markup_and_gst == Decimal("136351.04")
-        assert summary.transaction_count == 268
+        assert summary.total_forex_spend_inr == Decimal("511801.52")
+        assert summary.total_markup_amount == Decimal("17913.02")
+        assert summary.transaction_count == 253

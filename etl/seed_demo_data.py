@@ -49,14 +49,13 @@ DEFAULT_DEMO_ACCOUNT_NUMBER = "ACC101"
 WISDOM_PROPERTY_DESCRIPTOR = "WISDOM PROPERTY NL II"
 
 # Deliberately empty: this used to hold 15 scripted demo forex transactions
-# (days_ago, currency, fx_amount, inr_amount, category, narration,
+# (days_ago, currency, fx_amount, inr_amount, category, merchant,
 # merchant_location, kiosk) summing to INR 380,000, dropped from the
 # canonical demo dataset. seed_demo_data() prunes any such SEED-FX-* rows
 # left over from when this list was populated, on every run.
 _FOREX_TRANSACTIONS: list[tuple] = []
 
 FOREX_MARKUP_PCT = Decimal("3.5")
-GST_RATE = Decimal("0.18")
 
 # Currency per foreign merchant_location found in data/transactionlist.py,
 # used only to back-derive a realistic txn_amount/exchange_rate for that
@@ -275,17 +274,11 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
             forex_markup_pct=Decimal("0"),
             joining_fee=Decimal("15000.00"),
             annual_fee=Decimal("0.00"),
-            # None here specifically means "unlimited" for this product
-            # (matches the demo script's "unlimited complimentary lounge
-            # access"), not "not applicable".
-            lounge_visits_domestic_per_year=None,
-            lounge_visits_international_per_year=None,
-            guest_visits_per_year=12,
+            lounge_visits_domestic_per_year=12,
+            lounge_visits_international_per_year=6,
             reward_transfer_partners=encode_reward_transfer_partners(
                 ["Air India Maharaja Club", "Flying Blue", "Accor ALL"]
             ),
-            min_relationship_tier_for_discount="PRIORITY",
-            relationship_discount_pct=Decimal("25.00"),
             external_product_id="prod-2",
             forex_enabled=False,
             product_rewards_enabled=False,
@@ -298,6 +291,8 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
     else:
         credit_product.name = "Global Elite zero forex markup credit card"
         credit_product.annual_fee = Decimal("0.00")
+        credit_product.lounge_visits_domestic_per_year = 12
+        credit_product.lounge_visits_international_per_year = 6
         credit_product.external_product_id = "prod-2"
         credit_product.forex_enabled = False
         credit_product.product_rewards_enabled = False
@@ -374,31 +369,25 @@ def _seed_customer(session: Session, account_number: str, result: SeedResult) ->
 def _build_forex_rows(as_of: date) -> list[dict]:
     """The 15 scripted forex transactions, as merge-sortable row dicts."""
     rows = []
-    for i, (days_ago, currency, fx_amount, inr_amount, category, narration, location, kiosk) in enumerate(
+    for i, (days_ago, currency, fx_amount, inr_amount, category, merchant_name, location, kiosk) in enumerate(
         _FOREX_TRANSACTIONS
     ):
         txn_date = as_of - timedelta(days=days_ago)
         markup = (inr_amount * FOREX_MARKUP_PCT / Decimal("100")).quantize(Decimal("0.01"))
-        gst = (markup * GST_RATE).quantize(Decimal("0.01"))
         rows.append(
             {
                 "reference_no": f"SEED-FX-{i:03d}",
                 "txn_date": txn_date,
-                "narration": narration,
-                "withdrawal_amount": inr_amount,
+                "merchant": merchant_name,
+                "txn_amount_INR": inr_amount,
                 "txn_currency": currency,
                 "txn_amount": fx_amount,
                 "exchange_rate": (inr_amount / fx_amount).quantize(Decimal("0.0001")),
-                "forex_markup_pct": FOREX_MARKUP_PCT,
-                "forex_markup_amount": markup,
-                "gst_on_markup": gst,
+                "forex_markup_amount_INR": markup,
                 "category": category,
-                "description": f"Overseas {category.lower()} spend",
-                "kiosk": kiosk,
-                "merchant_location": location,
+                "parent_entity": kiosk,
                 "instrument_mode": "card-last4digits-4881",
                 "transaction_type": "international",
-                "is_wisdom_property": narration == WISDOM_PROPERTY_DESCRIPTOR,
             }
         )
     return rows
@@ -416,45 +405,36 @@ def _build_imported_rows() -> list[dict]:
     rows = []
     for row in TRANSACTIONS:
         txn_date = date.fromisoformat(row["date"])
-        withdrawal_amount = Decimal(str(row["amount"])).quantize(Decimal("0.01"))
+        txn_amount_inr = Decimal(str(row["amount"])).quantize(Decimal("0.01"))
         transaction_type = row["transaction_type"]
 
-        txn_currency = None
+        txn_currency = "INR"
         txn_amount = None
         exchange_rate = None
-        forex_markup_pct = None
-        forex_markup_amount = None
-        gst_on_markup = None
+        forex_markup_amount_inr = None
 
         if transaction_type == "international":
             currency = _LOCATION_CURRENCY.get(row["merchant_location"], "USD")
             rate = _FX_RATES_INR[currency]
             txn_currency = currency
             exchange_rate = rate
-            txn_amount = (withdrawal_amount / rate).quantize(Decimal("0.01"))
-            forex_markup_pct = FOREX_MARKUP_PCT
-            forex_markup_amount = Decimal(str(row["forex_charges"])).quantize(Decimal("0.01"))
-            gst_on_markup = (forex_markup_amount * GST_RATE).quantize(Decimal("0.01"))
+            txn_amount = (txn_amount_inr / rate).quantize(Decimal("0.01"))
+            forex_markup_amount_inr = Decimal(str(row["forex_charges"])).quantize(Decimal("0.01"))
 
         rows.append(
             {
                 "reference_no": row["id"],
                 "txn_date": txn_date,
-                "narration": row["merchant"],
-                "withdrawal_amount": withdrawal_amount,
+                "merchant": row["merchant"],
+                "txn_amount_INR": txn_amount_inr,
                 "txn_currency": txn_currency,
                 "txn_amount": txn_amount,
                 "exchange_rate": exchange_rate,
-                "forex_markup_pct": forex_markup_pct,
-                "forex_markup_amount": forex_markup_amount,
-                "gst_on_markup": gst_on_markup,
+                "forex_markup_amount_INR": forex_markup_amount_inr,
                 "category": row["category"],
-                "description": row["description"],
-                "kiosk": row["kiosk"],
-                "merchant_location": row["merchant_location"],
+                "parent_entity": row["kiosk"],
                 "instrument_mode": row["instrument_mode"],
                 "transaction_type": transaction_type,
-                "is_wisdom_property": False,
             }
         )
     return rows
@@ -464,19 +444,13 @@ def _seed_transactions(
     session: Session,
     account_number: str,
     card_id: int,
-    merchant_id: int,
     result: SeedResult,
     as_of: date,
 ) -> None:
     """Seed the full transaction history: the 15 scripted forex rows plus the
     365-day history from data/transactionlist.py.
 
-    Both sets are merge-sorted by txn_date into one sequence so closing_balance
-    is a single consistent running total across the whole history, starting
-    from a balance comfortably larger than total withdrawals (1.1x the sum)
-    rather than a hardcoded guess.
-
-    Also prunes any previously-seeded transaction under this account that no
+    Prunes any previously-seeded transaction under this account that no
     longer appears in the current source data (e.g. a row dropped from
     _FOREX_TRANSACTIONS or data/transactionlist.py), so a database that was
     seeded from an older version of this file converges to match the current
@@ -502,13 +476,7 @@ def _seed_transactions(
         session.delete(txn)
         result.transactions_pruned += 1
 
-    running_balance = (sum((r["withdrawal_amount"] for r in all_rows), Decimal("0")) * Decimal("1.1")).quantize(
-        Decimal("0.01")
-    )
-
     for row in all_rows:
-        running_balance -= row["withdrawal_amount"]
-
         existing = (
             session.query(Transaction)
             .filter_by(account_number=account_number, reference_no=row["reference_no"], txn_date=row["txn_date"])
@@ -522,23 +490,17 @@ def _seed_transactions(
             Transaction(
                 account_number=account_number,
                 card_id=card_id,
-                merchant_id=merchant_id if row["is_wisdom_property"] else None,
+                card_type="debit",
                 txn_date=row["txn_date"],
-                value_date=row["txn_date"],
-                narration=row["narration"],
+                merchant=row["merchant"],
                 reference_no=row["reference_no"],
-                withdrawal_amount=row["withdrawal_amount"],
-                closing_balance=running_balance,
+                txn_amount_INR=row["txn_amount_INR"],
                 txn_currency=row["txn_currency"],
                 txn_amount=row["txn_amount"],
                 exchange_rate=row["exchange_rate"],
-                forex_markup_pct=row["forex_markup_pct"],
-                forex_markup_amount=row["forex_markup_amount"],
-                gst_on_markup=row["gst_on_markup"],
+                forex_markup_amount_INR=row["forex_markup_amount_INR"],
                 category=row["category"],
-                description=row["description"],
-                kiosk=row["kiosk"],
-                merchant_location=row["merchant_location"],
+                parent_entity=row["parent_entity"],
                 instrument_mode=row["instrument_mode"],
                 transaction_type=row["transaction_type"],
             )
@@ -670,7 +632,7 @@ def seed_demo_data(
         debit_product, credit_product = _seed_card_products(session, result)
         card = _seed_card(session, account_number, debit_product.id, result)
         customer = _seed_customer(session, account_number, result)
-        _seed_transactions(session, account_number, card.id, merchant.id, result, resolved_as_of)
+        _seed_transactions(session, account_number, card.id, result, resolved_as_of)
         service_request = _seed_service_request(session, customer.id, result)
         _seed_customer_360(session, customer.id, account_number, service_request.id, credit_product.id, result)
         _prune_stale_service_requests(session, customer.id, service_request.service_request_id, result)

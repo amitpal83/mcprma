@@ -18,6 +18,11 @@ from etl.excel_importer import import_statement
 EXCEL_PATH = Path(__file__).resolve().parent.parent / "data" / "Account_Statement_Sep26.xls"
 ACCOUNT_NUMBER = "8552"
 
+requires_real_statement = pytest.mark.skipif(
+    not EXCEL_PATH.exists(),
+    reason="real statement file is gitignored personal data, not present in this environment",
+)
+
 
 @pytest.fixture
 def session_factory(tmp_path):
@@ -26,6 +31,7 @@ def session_factory(tmp_path):
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
+@requires_real_statement
 def test_import_first_20_transactions(session_factory):
     result = import_statement(EXCEL_PATH, ACCOUNT_NUMBER, max_rows=20, session_factory=session_factory)
 
@@ -46,9 +52,10 @@ def test_import_first_20_transactions(session_factory):
         assert first.withdrawal_amount == Decimal("20000.00")
         assert first.deposit_amount is None
         assert first.closing_balance == Decimal("1670150.61")
-        assert "PREETIKA PAL" in first.narration
+        assert "PREETIKA PAL" in first.merchant
 
 
+@requires_real_statement
 def test_reimport_is_idempotent(session_factory):
     import_statement(EXCEL_PATH, ACCOUNT_NUMBER, max_rows=20, session_factory=session_factory)
     result = import_statement(EXCEL_PATH, ACCOUNT_NUMBER, max_rows=20, session_factory=session_factory)

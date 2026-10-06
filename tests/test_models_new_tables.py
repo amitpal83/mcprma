@@ -93,12 +93,9 @@ def _seed_core_rows(session):
     transaction = Transaction(
         account_number=account.account_number,
         card_id=card.id,
-        merchant_id=merchant.id,
         txn_date=date(2026, 8, 12),
-        value_date=date(2026, 8, 12),
-        narration="WISDOM PROPERTY NL II",
-        withdrawal_amount=353,
-        closing_balance=100000,
+        merchant="WISDOM PROPERTY NL II",
+        txn_amount_INR=353,
         txn_currency="EUR",
         txn_amount=353,
     )

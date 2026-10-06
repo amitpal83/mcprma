@@ -51,10 +51,9 @@ class Transaction(Base):
 
     Two kinds of rows share this table: plain bank-narration transactions
     (UPI/IMPS/ACH, `card_id` NULL) and debit-card transactions (`card_id` set,
-    plus the forex/merchant columns populated when applicable). They share it
-    because a debit card spend hits the same account balance this table
-    already tracks via `closing_balance` — a credit card, which does not,
-    never gets rows here (see `CardApplication` instead).
+    plus the forex/merchant columns populated when applicable) -- a credit
+    card, which settles separately rather than hitting this account
+    directly, never gets rows here (see `CardApplication` instead).
     """
 
     __tablename__ = "transactions"
@@ -68,38 +67,27 @@ class Transaction(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     account_number: Mapped[str] = mapped_column(ForeignKey("accounts.account_number"), nullable=False)
     txn_date: Mapped[date] = mapped_column(Date, nullable=False)
-    value_date: Mapped[date] = mapped_column(Date, nullable=False)
-    narration: Mapped[str] = mapped_column(String(500), nullable=False)
+    merchant: Mapped[str] = mapped_column(String(500), nullable=False)
     reference_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    withdrawal_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
-    deposit_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
-    closing_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    txn_amount_INR: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    # --- Card / forex / merchant enrichment (all nullable: only populated
-    # for debit-card rows; plain bank-narration rows leave these all NULL) ---
+    # --- Card / forex / merchant enrichment ---
     card_id: Mapped[int | None] = mapped_column(ForeignKey("cards.id"), nullable=True)
-    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchants.id"), nullable=True)
-    txn_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    card_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    txn_currency: Mapped[str] = mapped_column(String(3), nullable=False)
     txn_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
-    forex_markup_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
-    forex_markup_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
-    gst_on_markup: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
-    mcc: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    forex_markup_amount_INR: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # --- Statement-line detail sourced from richer transaction feeds (all
-    # nullable: older/plain rows won't have these) ---
-    description: Mapped[str | None] = mapped_column(String(250), nullable=True)
-    kiosk: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    merchant_location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # --- Statement-line detail sourced from richer transaction feeds ---
+    parent_entity: Mapped[str | None] = mapped_column(String(120), nullable=True)
     instrument_mode: Mapped[str | None] = mapped_column(String(50), nullable=True)
     transaction_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "domestic" | "international"
 
     account: Mapped[Account] = relationship(back_populates="transactions")
     card: Mapped["Card | None"] = relationship()
-    merchant: Mapped["Merchant | None"] = relationship()
 
     def __repr__(self) -> str:
         return (
@@ -127,10 +115,7 @@ class CardProduct(Base):
     annual_fee: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     lounge_visits_domestic_per_year: Mapped[int | None] = mapped_column(nullable=True)
     lounge_visits_international_per_year: Mapped[int | None] = mapped_column(nullable=True)
-    guest_visits_per_year: Mapped[int | None] = mapped_column(nullable=True)
     reward_transfer_partners: Mapped[str | None] = mapped_column(Text, nullable=True)
-    min_relationship_tier_for_discount: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    relationship_discount_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -277,7 +262,6 @@ class CardApplication(Base):
     card_product_id: Mapped[int] = mapped_column(ForeignKey("card_products.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="SUBMITTED")
     applied_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    discount_pct_applied: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     fee_charged: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     # Snapshot, not a live FK to Customer's address fields — later preference
     # changes must not rewrite what was actually submitted on this application.

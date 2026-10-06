@@ -32,34 +32,28 @@ def client(tmp_path):
         session.add_all(
             [
                 Transaction(
+                    txn_currency="INR",
                     account_number=ACCOUNT_NUMBER,
                     txn_date=date(2026, 9, 1),
-                    value_date=date(2026, 9, 1),
-                    narration="UPI-EARLY-TXN",
+                    merchant="UPI-EARLY-TXN",
                     reference_no="REF001",
-                    withdrawal_amount=Decimal("100.00"),
-                    deposit_amount=None,
-                    closing_balance=Decimal("900.00"),
+                    txn_amount_INR=Decimal("100.00"),
                 ),
                 Transaction(
+                    txn_currency="INR",
                     account_number=ACCOUNT_NUMBER,
                     txn_date=date(2026, 9, 15),
-                    value_date=date(2026, 9, 15),
-                    narration="UPI-MID-TXN",
+                    merchant="UPI-MID-TXN",
                     reference_no="REF002",
-                    withdrawal_amount=None,
-                    deposit_amount=Decimal("500.00"),
-                    closing_balance=Decimal("1400.00"),
+                    txn_amount_INR=None,
                 ),
                 Transaction(
+                    txn_currency="INR",
                     account_number=ACCOUNT_NUMBER,
                     txn_date=date(2026, 9, 30),
-                    value_date=date(2026, 9, 30),
-                    narration="UPI-LATE-TXN",
+                    merchant="UPI-LATE-TXN",
                     reference_no="REF003",
-                    withdrawal_amount=Decimal("50.00"),
-                    deposit_amount=None,
-                    closing_balance=Decimal("1350.00"),
+                    txn_amount_INR=Decimal("50.00"),
                 ),
             ]
         )

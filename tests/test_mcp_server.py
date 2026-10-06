@@ -36,14 +36,12 @@ def seeded_session_factory(tmp_path):
         session.add(Account(account_number=ACCOUNT_NUMBER))
         session.add(
             Transaction(
+                txn_currency="INR",
                 account_number=ACCOUNT_NUMBER,
                 txn_date=date(2026, 9, 5),
-                value_date=date(2026, 9, 5),
-                narration="TEST-TXN",
+                merchant="TEST-TXN",
                 reference_no="REF100",
-                withdrawal_amount=Decimal("42.00"),
-                deposit_amount=None,
-                closing_balance=Decimal("1000.00"),
+                txn_amount_INR=Decimal("42.00"),
             )
         )
         session.commit()
@@ -58,8 +56,7 @@ def test_fetch_account_transactions_returns_json_serializable_rows(seeded_sessio
 
     assert len(rows) == 1
     assert rows[0]["reference_no"] == "REF100"
-    assert rows[0]["withdrawal_amount"] == "42.00"  # Decimal -> string in JSON mode
-    assert rows[0]["deposit_amount"] is None
+    assert rows[0]["txn_amount_INR"] == "42.00"  # Decimal -> string in JSON mode
 
 
 def test_fetch_account_transactions_unknown_account_raises_tool_error(seeded_session_factory):

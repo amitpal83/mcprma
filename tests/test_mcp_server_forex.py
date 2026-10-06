@@ -56,29 +56,26 @@ def seeded_session_factory(tmp_path):
                 Transaction(
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
-                    merchant_id=merchant.id,
                     txn_date=date(2026, 8, 12),
-                    value_date=date(2026, 8, 12),
-                    narration="WISDOM PROPERTY NL II",
+                    merchant="WISDOM PROPERTY NL II",
                     reference_no="SEED-FX-001",
-                    withdrawal_amount=Decimal("32000.00"),
-                    closing_balance=Decimal("100000.00"),
+                    txn_amount_INR=Decimal("32000.00"),
                     txn_currency="EUR",
                     txn_amount=Decimal("353.00"),
-                    forex_markup_amount=Decimal("1120.00"),
-                    gst_on_markup=Decimal("201.60"),
+                    forex_markup_amount_INR=Decimal("1120.00"),
                     category="Travel",
+                    transaction_type="international",
                 ),
                 Transaction(
+                    txn_currency="INR",
                     account_number=ACCOUNT_NUMBER,
                     card_id=card.id,
                     txn_date=date(2026, 7, 1),
-                    value_date=date(2026, 7, 1),
-                    narration="BIG BAZAAR MUMBAI",
+                    merchant="BIG BAZAAR MUMBAI",
                     reference_no="SEED-FX-002",
-                    withdrawal_amount=Decimal("500.00"),
-                    closing_balance=Decimal("85000.00"),
+                    txn_amount_INR=Decimal("500.00"),
                     category="Groceries",
+                    transaction_type="domestic",
                 ),
             ]
         )
@@ -126,31 +123,27 @@ def seeded_two_card_session_factory(tmp_path):
                     account_number=ACCOUNT_NUMBER,
                     card_id=debit_card.id,
                     txn_date=date(2026, 8, 1),
-                    value_date=date(2026, 8, 1),
-                    narration="DEBIT CARD FOREX SPEND",
+                    merchant="DEBIT CARD FOREX SPEND",
                     reference_no="DEBIT-001",
-                    withdrawal_amount=Decimal("10000.00"),
-                    closing_balance=Decimal("90000.00"),
+                    txn_amount_INR=Decimal("10000.00"),
                     txn_currency="USD",
                     txn_amount=Decimal("120.00"),
-                    forex_markup_amount=Decimal("350.00"),
-                    gst_on_markup=Decimal("63.00"),
+                    forex_markup_amount_INR=Decimal("350.00"),
                     category="Travel",
+                    transaction_type="international",
                 ),
                 Transaction(
                     account_number=ACCOUNT_NUMBER,
                     card_id=credit_card.id,
                     txn_date=date(2026, 8, 5),
-                    value_date=date(2026, 8, 5),
-                    narration="CREDIT CARD FOREX SPEND",
+                    merchant="CREDIT CARD FOREX SPEND",
                     reference_no="CREDIT-001",
-                    withdrawal_amount=Decimal("5000.00"),
-                    closing_balance=Decimal("45000.00"),
+                    txn_amount_INR=Decimal("5000.00"),
                     txn_currency="USD",
                     txn_amount=Decimal("60.00"),
-                    forex_markup_amount=Decimal("100.00"),
-                    gst_on_markup=Decimal("18.00"),
+                    forex_markup_amount_INR=Decimal("100.00"),
                     category="Travel",
+                    transaction_type="international",
                 ),
             ]
         )
@@ -220,24 +213,43 @@ def test_fetch_account_forex_summary_aggregates_every_card_on_account(seeded_two
     assert summary["transaction_count"] == 2
     assert summary["total_forex_spend_inr"] == "15000.00"
     assert summary["total_markup_amount"] == "450.00"
-    assert summary["total_gst_amount"] == "81.00"
 
 
 def test_fetch_account_category_breakdown(seeded_session_factory):
     factory = seeded_session_factory
-    rows = fetch_account_category_breakdown(ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=factory)
-    categories = {row["category"] for row in rows}
-    assert categories == {"Travel", "Groceries"}
+
+    international = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", "international", session_factory=factory
+    )
+    assert international["total_amount"] == "32000.00"
+    assert international["total_forex_markup_amount_INR"] == "1120.00"
+    assert international["transaction_count"] == 1
+
+    domestic = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", "domestic", session_factory=factory
+    )
+    assert domestic["total_amount"] == "500.00"
+    assert domestic["total_forex_markup_amount_INR"] == "0"
+    assert domestic["transaction_count"] == 1
+
+    scoped_to_groceries = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", "domestic", "Groceries", session_factory=factory
+    )
+    assert scoped_to_groceries["transaction_count"] == 1
+
+    scoped_to_travel = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", "domestic", "Travel", session_factory=factory
+    )
+    assert scoped_to_travel["transaction_count"] == 0
 
 
 def test_fetch_account_category_breakdown_aggregates_every_card_on_account(seeded_two_card_session_factory):
-    rows = fetch_account_category_breakdown(
-        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", session_factory=seeded_two_card_session_factory
+    result = fetch_account_category_breakdown(
+        ACCOUNT_NUMBER, "2026-01-01", "2026-12-31", "international", session_factory=seeded_two_card_session_factory
     )
-    assert len(rows) == 1
-    assert rows[0]["category"] == "Travel"
-    assert rows[0]["total_amount"] == "15000.00"
-    assert rows[0]["transaction_count"] == 2
+    assert result["total_amount"] == "15000.00"
+    assert result["total_forex_markup_amount_INR"] == "450.00"
+    assert result["transaction_count"] == 2
 
 
 def test_mcp_tool_search_account_transactions_end_to_end(seeded_session_factory, monkeypatch):

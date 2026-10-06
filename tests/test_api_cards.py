@@ -31,7 +31,6 @@ def client(tmp_path):
             network="Visa",
             card_type="credit",
             forex_markup_pct=0,
-            guest_visits_per_year=12,
             reward_transfer_partners=encode_reward_transfer_partners(["Flying Blue"]),
         )
         session.add_all([debit_product, credit_product])

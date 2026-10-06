@@ -21,9 +21,15 @@ from db.session import init_db
 
 @pytest.fixture
 def old_schema_engine(tmp_path):
-    """A throwaway sqlite file with the OLD (pre-Step-1) transactions table:
-    no card_id/merchant_id/txn_currency/... columns -- reproducing exactly
-    what the real data/rma.db looked like before this session's schema work.
+    """A throwaway sqlite file with an older transactions table: has the
+    required columns (account_number/txn_date/merchant/txn_currency, the
+    latter NOT NULL) but is missing several newer nullable columns --
+    reproducing a database that predates those columns being added to
+    Transaction. txn_currency itself can't be a "missing column" in this
+    fixture: init_db()'s add-missing-columns logic only handles additive,
+    nullable changes (see its own docstring) and can't backfill a NOT NULL
+    column with no default onto a non-empty table -- that's real-migration
+    territory, which this project deliberately doesn't have.
     """
     engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
     with engine.begin() as conn:
@@ -35,13 +41,12 @@ def old_schema_engine(tmp_path):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     account_number VARCHAR(34) NOT NULL,
                     txn_date DATE NOT NULL,
-                    value_date DATE NOT NULL,
-                    narration VARCHAR(500) NOT NULL,
+                    merchant VARCHAR(500) NOT NULL,
                     reference_no VARCHAR(50),
-                    withdrawal_amount NUMERIC(18, 2),
-                    deposit_amount NUMERIC(18, 2),
-                    closing_balance NUMERIC(18, 2) NOT NULL,
-                    created_at DATETIME
+                    txn_amount_INR NUMERIC(18, 2),
+                    created_at DATETIME,
+                    card_id INTEGER,
+                    txn_currency VARCHAR(3) NOT NULL
                 )
                 """
             )
@@ -51,9 +56,9 @@ def old_schema_engine(tmp_path):
             text(
                 """
                 INSERT INTO transactions
-                    (account_number, txn_date, value_date, narration, reference_no,
-                     withdrawal_amount, deposit_amount, closing_balance)
-                VALUES ('8552', '2026-09-01', '2026-09-01', 'PRE-EXISTING ROW', 'REF001', 100.00, NULL, 900.00)
+                    (account_number, txn_date, merchant, reference_no,
+                     txn_amount_INR, txn_currency)
+                VALUES ('8552', '2026-09-01', 'PRE-EXISTING ROW', 'REF001', 100.00, 'INR')
                 """
             )
         )
@@ -66,16 +71,17 @@ def test_init_db_adds_missing_columns_without_touching_existing_rows(old_schema_
     inspector = inspect(old_schema_engine)
     columns = {col["name"] for col in inspector.get_columns("transactions")}
     assert {
-        "card_id", "merchant_id", "txn_currency", "txn_amount", "exchange_rate",
-        "forex_markup_pct", "forex_markup_amount", "gst_on_markup", "mcc", "category",
+        "card_type", "txn_amount", "exchange_rate",
+        "forex_markup_amount_INR", "category", "parent_entity",
+        "instrument_mode", "transaction_type",
     } <= columns
 
     Session = sessionmaker(bind=old_schema_engine)
     with Session() as session:
         row = session.query(Transaction).filter_by(reference_no="REF001").one()
-        assert row.narration == "PRE-EXISTING ROW"
-        assert row.withdrawal_amount == Decimal("100.00")
-        assert row.card_id is None  # new column, backfilled NULL on the old row
+        assert row.merchant == "PRE-EXISTING ROW"
+        assert row.txn_amount_INR == Decimal("100.00")
+        assert row.card_type is None  # new column, backfilled NULL on the old row
 
 
 def test_init_db_is_idempotent_on_already_migrated_schema(old_schema_engine):
@@ -84,7 +90,7 @@ def test_init_db_is_idempotent_on_already_migrated_schema(old_schema_engine):
 
     inspector = inspect(old_schema_engine)
     columns = [col["name"] for col in inspector.get_columns("transactions")]
-    assert columns.count("card_id") == 1
+    assert columns.count("card_type") == 1
 
 
 def test_init_db_on_brand_new_db_creates_full_schema(tmp_path):

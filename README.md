@@ -53,7 +53,7 @@ video-call assistant.
 
 `get_account_txn_details`, `list_account_cards`, `list_card_products`,
 `get_card_product`, `search_account_transactions`, `get_account_forex_summary`,
-`get_account_category_breakdown`, `get_customer_profile`, `get_customer_360`,
+`get_transaction_category_analysis`, `get_customer_profile`, `get_customer_360`,
 `get_latest_service_request`, `update_customer_delivery_preference`,
 `create_dispute`, `withdraw_dispute`, `get_account_recommendation`,
 `create_card_application`, `get_card_application_status`.

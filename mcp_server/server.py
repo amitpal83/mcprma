@@ -462,7 +462,7 @@ def fetch_account_category_breakdown(
 
 
 @mcp.tool()
-def get_account_category_breakdown(
+def get_transaction_category_analysis(
     account_number: str,
     from_date: str,
     to_date: str,
@@ -499,7 +499,7 @@ def get_account_category_breakdown(
             "international".
     """
     logger.info(
-        "MCP tool call: get_account_category_breakdown(%s, %s, %s, %s, %s)",
+        "MCP tool call: get_transaction_category_analysis(%s, %s, %s, %s, %s)",
         account_number, from_date, to_date, transaction_type, category,
     )
     return fetch_account_category_breakdown(account_number, from_date, to_date, transaction_type, category)

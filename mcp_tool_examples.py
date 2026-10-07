@@ -119,11 +119,11 @@ async def get_account_forex_summary(session: ClientSession, account_number: str,
     return _unwrap(result)
 
 
-async def get_account_category_breakdown(session: ClientSession, account_number: str, from_date: str, to_date: str):
+async def get_transaction_category_analysis(session: ClientSession, account_number: str, from_date: str, to_date: str):
     """Spend grouped by category (Travel, Dining, ...) over a date range,
     aggregated across every card the account has."""
     result = await session.call_tool(
-        "get_account_category_breakdown",
+        "get_transaction_category_analysis",
         {"account_number": account_number, "from_date": from_date, "to_date": to_date},
     )
     return _unwrap(result)

@@ -1,6 +1,6 @@
 """Tests for the account-scoped card-transaction search / forex-summary /
 category-breakdown MCP tools: search_account_transactions,
-get_account_forex_summary, get_account_category_breakdown (Step 4; renamed
+get_account_forex_summary, get_transaction_category_analysis (Step 4; renamed
 from their original card_id-scoped names in a later pass -- each tool
 resolves every card linked to the account internally instead of taking a
 card_id)."""

@@ -85,9 +85,7 @@ mcp = MCPServer(name="rma-account-statements")
 class BearerTokenMiddleware:
     """Pure-ASGI middleware requiring 'Authorization: Bearer <token>' on every
     HTTP request. 
-    -- it only inspects headers and never touches the request/response body,
-    so it can't interfere with the Streamable HTTP endpoint's long-lived
-    streaming responses.
+    
     """
 
     def __init__(self, app: ASGIApp, token: str) -> None:
@@ -213,7 +211,7 @@ def list_account_cards(account_number: str) -> dict[str, Any]:
 
     Returns:
         {"result": [...]} -- a list of card objects, each with: id (the
-        internal card id, last4, network (e.g. "Visa"), card_type
+         card id, last4, network (e.g. "Visa"), card_type
         ("debit"/"credit"), status (e.g. "active"), issued_at, created_at.
         `result` is `[]`, not an error, if the account has no cards.
 
@@ -245,8 +243,7 @@ def list_card_products(card_type: str | None = None, active_only: bool = True) -
 
     Returns:
         {"result": [...]} -- a list of card-product objects, each with: id,
-        card_type, forex_markup_pct, forex_enabled (whether it carries forex
-        markup at all), joining_fee, annual_fee,
+        card_type, forex_markup_pct, forex_enabled, joining_fee, annual_fee,
         lounge_visits_domestic_per_year / lounge_visits_international_per_year,
         product_rewards_enabled, reward_transfer_partners , key_features (list of marketing bullet
         points), relationship_discounts_appl , relationship_tier , eligibility_criteria (list of requirements to
@@ -325,10 +322,8 @@ def search_account_transactions(
         oldest-first, each with: id, account_number, txn_date,
         merchant (raw statement merchant text), reference_no,
         txn_amount_INR , card_id, card_type, 
-        txn_currency, category, parent_entity (the outlet
-        or property behind the merchant, e.g. the hotel "The Oberoi"),
-        instrument_mode (the payment instrument used, e.g.
-        "card-last4digits-4881"),
+        txn_currency, category, parent_entity,
+        instrument_mode,
         transaction_type ("domestic" or "international"),
         and a set of forex fields like foreign-currency
         amount, exchange_rate, forex_markup_amount_INR 
@@ -469,11 +464,10 @@ def get_transaction_category_analysis(
     transaction_type: str,
     category: str | None = None,
 ) -> dict[str, Any]:
-    """Aggregate an account's spend (and forex markup) by date range,  transaction_type (domestic/international) , and  category.
+    """Aggregate an account's spend and forex markup by date range,  transaction_type (domestic/international) , and  category.
 
     Aggregates across every card linked to the account. Returns a single aggregate
-    for whatever filters were given  or omit category for the total across
-    all categories within transaction_type.
+    for whatever filters were given for given transaction_type.
 
     Args:
         account_number: The account number to look up, e.g. "8552".
@@ -485,12 +479,8 @@ def get_transaction_category_analysis(
             total across every category.
 
     Returns:
-        account_number, from_date, to_date, transaction_type, category (the
-        filters echoed back -- category is null if not given),
-        total_amount (INR, summed across matching transactions and every
-        card on the account), total_forex_markup_amount_INR (summed the
-        same way -- 0 for "domestic" since those rows never carry forex
-        markup), transaction_count. All zero if the account has no cards or
+        account_number, from_date, to_date, transaction_type, category ,
+        total_amount , total_forex_markup_amount_INR , transaction_count. All zero if the account has no cards or
         nothing matches.
 
     Raises:
@@ -630,8 +620,7 @@ def create_dispute(transaction_id: int, reason: str) -> dict[str, Any]:
 
     A transaction can only have one OPEN dispute at a time 
     Args:
-        transaction_id: The transaction's internal id (the `id` field from
-            get_account_txn_details / search_account_transactions), e.g. 1.
+        transaction_id: The transaction's id, 
         reason: Why the customer is disputing it, e.g. "Unrecognized charge".
 
     Returns:
@@ -670,34 +659,17 @@ def fetch_account_recommendation(account_number: str, session_factory: sessionma
 
 #@mcp.tool()
 def get_account_recommendation(account_number: str) -> dict[str, Any]:
-    """Recommend a lower-forex-markup card upgrade for an account and project the annual savings.
+    """Recommend a card upgrade for an account and project the annual savings.
 
-    Resolves the account's card internally (its earliest-issued card, same
-    one the account's forex history is scoped to). This is a live computation
-    (recomputed from that card's own trailing 365-day forex history every
-    call). The candidate is the active credit product
-    in the catalogue with the lowest forex_markup_pct strictly below the
-    resolved card's own product (tie-broken by lowest annual_fee); if none
-    beats it, there's nothing to recommend.
+   
 
     Args:
         account_number: The account number to look up, e.g. "8552".
 
     Returns:
-        A recommendation object: current_card_id (the card this was
-        computed against), recommended_product (the full card-product
-        object, see get_card_product), trailing_12mo_forex_spend_inr (the
-        spend the projection is based on), current_annual_markup
-        (what the current card costs in forex markup on that same
-        spend), projected_annual_markup (what the recommended
-        product would cost on the same spend), projected_annual_savings
-        (the difference), joining_fee, annual_fee (the recommended
-        product's own), net_joining_fee (joining_fee with GST added on
-        top), action_type ("cross_sell" when the recommended product is a
-        different card_type than the current card, e.g. debit to credit;
-        "upgrade" otherwise), reason (a short human-readable justification,
-        e.g. "HIGH FOREX Spending: ..." above a spend threshold, else a
-        lower-markup pitch).
+        A recommendation object: current_card_id , recommended_product , trailing_12mo_forex_spend_inr , current_annual_markup
+        , projected_annual_markup , projected_annual_savings
+        , joining_fee, annual_fee, net_joining_fee, action_type , reason .
 
     Raises:
         ToolError: account_number doesn't exist or has no cards, or no
@@ -734,23 +706,15 @@ def create_card_application(
 ) -> dict[str, Any]:
     """Submit a card application for a customer . 
 
-    A given customer can only have one SUBMITTED application per
-    card_product at a time -- submitting again for the same pair raises an
-    error rather than creating a duplicate. 
-
+    
     Args:
-        customer_id: The customer's internal id, e.g. 1.
-        card_product_id: The card product being applied for, e.g. 2. Get
-            this from list_card_products or get_account_recommendation's
-            recommended_product.id.
+        customer_id: The customer's  id
+        card_product_id: The card product being applied . 
         delivery_address: Optional delivery address, e.g. the customer's
-            office address. This is a point-in-time snapshot, independent of
-            the customer's delivery_address_office/_home on file -- a later
-            change to those does not retroactively change this.
+            office address. 
 
     Returns:
-        The created application object: id (use this as application_id in
-        get_card_application_status), customer_id, card_product_id, status
+        The created application object: id , customer_id, card_product_id, status
         ("SUBMITTED"), applied_at, fee_charged, delivery_address.
 
     Raises:
@@ -769,13 +733,8 @@ def build_asgi_app() -> ASGIApp:
     internally (mcp.streamable_http_app(...)),  wrapped in
     bearer-token auth, wrapped in CORS handling.
 
-    CORSMiddleware has to be outermost: it must see (and short-circuit) an
-    OPTIONS preflight itself, before BearerTokenMiddleware gets a chance to
-    401 it -- browsers never send the Authorization header on a preflight,
-    only on the real request that follows once the preflight succeeds.
-    Without this, a browser-based client (e.g. a gateway dashboard like
-    Portkey testing/discovering this server's tools from the user's browser)
-    can never get past the preflight to make that real request at all.
+    CORSMiddleware has to be outermost: it must see  an
+    OPTIONS preflight itself, before BearerTokenMiddleware
     """
     app: ASGIApp = mcp.streamable_http_app(host=DEFAULT_HOST)
     if BEARER_TOKEN:

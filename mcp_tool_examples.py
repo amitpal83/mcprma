@@ -132,7 +132,7 @@ async def get_account_category_breakdown(session: ClientSession, account_number:
 # --- Customer profile --------------------------------------------------------
 
 async def get_customer_profile(session: ClientSession, account_number: str):
-    """RM-facing customer profile for an account (email comes back masked)."""
+    """RM-facing customer profile for an account."""
     result = await session.call_tool("get_customer_profile", {"account_number": account_number})
     return _unwrap(result)
 

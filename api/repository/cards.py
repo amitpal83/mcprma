@@ -97,6 +97,21 @@ def encode_eligibility_criteria(criteria: list[str] | None) -> str | None:
     return json.dumps(criteria)
 
 
+def decode_relationship_discounts(raw: str | None) -> list[dict]:
+    """Decode CardProduct.relationship_discounts_appl (JSON text) into a list of
+    {discount_type: [str], relationship_tier: int, value: str}, same convention
+    as decode_reward_transfer_partners."""
+    if not raw:
+        return []
+    return json.loads(raw)
+
+
+def encode_relationship_discounts(discounts: list[dict] | None) -> str | None:
+    if not discounts:
+        return None
+    return json.dumps(discounts)
+
+
 def list_cards_for_account(session: Session, account_number: str) -> list[Card]:
     """Return all cards linked to account_number.
 

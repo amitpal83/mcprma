@@ -14,9 +14,9 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from api.repository.cards import (
     decode_eligibility_criteria,
     decode_key_features,
+    decode_relationship_discounts,
     decode_reward_transfer_partners,
 )
-from api.repository.customers import mask_email
 
 
 class TransactionOut(BaseModel):
@@ -74,6 +74,14 @@ class CardOut(BaseModel):
     created_at: datetime
 
 
+class RelationshipDiscountOut(BaseModel):
+    """A discount a card product offers to customers of a given relationship tier."""
+
+    discount_type: list[str]
+    relationship_tier: int
+    value: str
+
+
 class CardProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,7 +101,15 @@ class CardProductOut(BaseModel):
     forex_enabled: bool | None = None
     product_rewards_enabled: bool | None = None
     key_features: list[str] = []
+    relationship_discounts_appl: list[RelationshipDiscountOut] = []
     eligibility_criteria: list[str] = []
+
+    @field_validator("relationship_discounts_appl", mode="before")
+    @classmethod
+    def _decode_relationship_discounts(cls, value: object) -> list[dict]:
+        if value is None or isinstance(value, str):
+            return decode_relationship_discounts(value)
+        return value
 
     @field_validator("reward_transfer_partners", mode="before")
     @classmethod
@@ -118,9 +134,7 @@ class CardProductOut(BaseModel):
 
 
 class CustomerOut(BaseModel):
-    """Customer profile, wire-safe: the raw email is never a field here --
-    only masked variants are, computed from the ORM row before validation.
-    """
+    """Customer profile."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,47 +142,15 @@ class CustomerOut(BaseModel):
     account_number: str
     full_name: str
     relationship_tier: str
-    registered_email_masked: str
-    alt_email_masked: str | None
-    email_work_masked: str | None
-    email_personal_masked: str | None
+    registered_email: str
+    alt_email: str | None
+    email_work: str | None
+    email_personal: str | None
     onboarding_date: date | None
     delivery_address_office: str | None
     delivery_address_home: str | None
     preferred_delivery_address_type: str | None
     updated_at: datetime
-
-    @model_validator(mode="before")
-    @classmethod
-    def _mask_emails(cls, data: object) -> dict:
-        if isinstance(data, dict):
-            source = dict(data)
-            registered_email = source.get("registered_email")
-            alt_email = source.get("alt_email")
-            email_work = source.get("email_work")
-            email_personal = source.get("email_personal")
-        else:
-            source = {
-                "id": data.id,
-                "account_number": data.account_number,
-                "full_name": data.full_name,
-                "relationship_tier": data.relationship_tier,
-                "onboarding_date": data.onboarding_date,
-                "delivery_address_office": data.delivery_address_office,
-                "delivery_address_home": data.delivery_address_home,
-                "preferred_delivery_address_type": data.preferred_delivery_address_type,
-                "updated_at": data.updated_at,
-            }
-            registered_email = data.registered_email
-            alt_email = data.alt_email
-            email_work = data.email_work
-            email_personal = data.email_personal
-
-        source["registered_email_masked"] = mask_email(registered_email) if registered_email else None
-        source["alt_email_masked"] = mask_email(alt_email) if alt_email else None
-        source["email_work_masked"] = mask_email(email_work) if email_work else None
-        source["email_personal_masked"] = mask_email(email_personal) if email_personal else None
-        return source
 
 
 class DeliveryPreferenceUpdate(BaseModel):
@@ -221,15 +203,13 @@ class ServiceRequestOut(BaseModel):
     updated_at: datetime
 
 
-class NextBestOfferOut(BaseModel):
-    recommended_product_id: str | None
-    action_type: str | None
-    applicable_discounts: str | None
-    reason: str | None
+class HomeBranchOut(BaseModel):
+    name: str | None
+    address: str | None
 
 
 class Customer360Out(BaseModel):
-    """Customer-360 snapshot, wire-safe: emails are masked like CustomerOut."""
+    """Customer-360 snapshot."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -238,11 +218,12 @@ class Customer360Out(BaseModel):
     account_number: str
     customer_name: str
     onboarding_date: date | None
-    email_work_masked: str | None
-    email_personal_masked: str | None
+    email_work: str | None
+    email_personal: str | None
+    relationship_tier: int | None
+    home_branch: HomeBranchOut
     addresses: list[dict]
     current_instruments: list[dict]
-    next_best_offer: NextBestOfferOut
     updated_at: datetime
 
     @model_validator(mode="before")
@@ -250,10 +231,10 @@ class Customer360Out(BaseModel):
     def _shape(cls, data: object) -> dict:
         if isinstance(data, dict):
             source = dict(data)
-            email_work = source.get("email_work")
-            email_personal = source.get("email_personal")
             addresses_json = source.get("addresses_json")
             current_instruments_json = source.get("current_instruments_json")
+            home_branch_name = source.get("home_branch_name")
+            home_branch_address = source.get("home_branch_address")
         else:
             source = {
                 "id": data.id,
@@ -261,21 +242,17 @@ class Customer360Out(BaseModel):
                 "account_number": data.account_number,
                 "customer_name": data.customer_name,
                 "onboarding_date": data.onboarding_date,
+                "email_work": data.email_work,
+                "email_personal": data.email_personal,
+                "relationship_tier": data.relationship_tier,
                 "updated_at": data.updated_at,
             }
-            email_work = data.email_work
-            email_personal = data.email_personal
             addresses_json = data.addresses_json
             current_instruments_json = data.current_instruments_json
-            source["next_best_offer"] = {
-                "recommended_product_id": data.next_best_offer_product_external_id,
-                "action_type": data.next_best_offer_action_type,
-                "applicable_discounts": data.next_best_offer_applicable_discounts,
-                "reason": data.next_best_offer_reason,
-            }
+            home_branch_name = data.home_branch_name
+            home_branch_address = data.home_branch_address
 
-        source["email_work_masked"] = mask_email(email_work) if email_work else None
-        source["email_personal_masked"] = mask_email(email_personal) if email_personal else None
+        source.setdefault("home_branch", {"name": home_branch_name, "address": home_branch_address})
         source["addresses"] = json.loads(addresses_json) if addresses_json else []
         source["current_instruments"] = json.loads(current_instruments_json) if current_instruments_json else []
         return source

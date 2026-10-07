@@ -58,13 +58,11 @@ def client(tmp_path):
                 onboarding_date=date(2023, 1, 15),
                 email_work="work@email.com",
                 email_personal="personal@email.com",
-                addresses_json=json.dumps([{"address_type": "home", "address": "Noida", "preferred_flag": False}]),
+                addresses_json=json.dumps([{"address_type": "Correspondence", "address": "Noida"}]),
                 current_instruments_json=json.dumps([{"instrument_type": "debit_card"}]),
-                next_best_offer_product_external_id="prod-2",
-                next_best_offer_product_id=credit_product.id,
-                next_best_offer_action_type="cross_sell",
-                next_best_offer_applicable_discounts="25% on joining fee",
-                next_best_offer_reason="HIGH FOREX Spending",
+                relationship_tier=3,
+                home_branch_name="HDFC Bank",
+                home_branch_address="Sita commercial complex, New Delhi",
                 raw_json=json.dumps({"customer_name": "VIPUL SINGH"}),
             )
         )
@@ -90,11 +88,12 @@ def test_get_account_customer_360(client):
     assert response.status_code == 200
     body = response.json()
     assert body["customer_name"] == "VIPUL SINGH"
-    assert body["next_best_offer"]["recommended_product_id"] == "prod-2"
-    assert body["next_best_offer"]["action_type"] == "cross_sell"
-    assert body["next_best_offer"]["reason"] == "HIGH FOREX Spending"
-    assert body["addresses"][0]["address"] == "Noida"
-    assert body["email_work_masked"] == "wor***@email.com"
+    assert "next_best_offer" not in body
+    assert body["relationship_tier"] == 3
+    assert body["home_branch"] == {"name": "HDFC Bank", "address": "Sita commercial complex, New Delhi"}
+    assert body["addresses"][0] == {"address_type": "Correspondence", "address": "Noida"}
+    assert body["email_work"] == "work@email.com"
+    assert "email_work_masked" not in body
 
 
 def test_get_account_customer_360_unknown_account_returns_404(client):

@@ -1,11 +1,4 @@
-"""Customer profile lookups and delivery-preference updates.
-
-PII masking (customer email) deliberately does NOT live here -- this module
-returns the full ORM row, unmasked, so any future internal-only consumer can
-still read the real email. Masking happens at the schema layer
-(api/schemas.py CustomerOut), which is the one place that decides what a
-caller-facing response looks like.
-"""
+"""Customer profile lookups and delivery-preference updates."""
 from __future__ import annotations
 
 import logging
@@ -32,21 +25,6 @@ class InvalidDeliveryAddressTypeError(Exception):
             f"preferred_delivery_address_type must be one of "
             f"{sorted(VALID_DELIVERY_ADDRESS_TYPES)}, got: {value!r}"
         )
-
-
-def mask_email(email: str) -> str:
-    """Mask the local part of an email, keeping the domain visible.
-
-    E.g. "rammehta@outlook.com" -> "ram******@outlook.com" -- matches how
-    the RM Twin demo script shows a masked email being read back to the
-    customer in real time (only the local part is obscured, the domain
-    stays visible).
-    """
-    local, _, domain = email.partition("@")
-    prefix_len = min(3, len(local))
-    prefix = local[:prefix_len]
-    stars = max(len(local) - prefix_len, 3)
-    return f"{prefix}{'*' * stars}@{domain}"
 
 
 def get_customer_by_account(session: Session, account_number: str) -> Customer:

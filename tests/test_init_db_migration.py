@@ -101,3 +101,59 @@ def test_init_db_on_brand_new_db_creates_full_schema(tmp_path):
     assert "card_products" in inspector.get_table_names()
     columns = {col["name"] for col in inspector.get_columns("transactions")}
     assert "card_id" in columns
+
+
+def test_init_db_drops_obsolete_next_best_offer_columns_and_keeps_data(tmp_path):
+    """A customer_360 table created before next-best-offer was removed (with its
+    FOREIGN KEY to card_products) is rebuilt without those columns, keeping its
+    rows and gaining the new relationship_tier / home_branch columns."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    init_db(bind=engine)  # current schema, so every referenced table exists
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE customer_360"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE customer_360 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id INTEGER NOT NULL UNIQUE,
+                    account_number VARCHAR(34) NOT NULL,
+                    customer_name VARCHAR(120) NOT NULL,
+                    onboarding_date DATE,
+                    email_work VARCHAR(120),
+                    email_personal VARCHAR(120),
+                    addresses_json TEXT,
+                    current_instruments_json TEXT,
+                    latest_service_request_id INTEGER,
+                    next_best_offer_product_external_id VARCHAR(50),
+                    next_best_offer_product_id INTEGER,
+                    next_best_offer_action_type VARCHAR(30),
+                    next_best_offer_applicable_discounts VARCHAR(250),
+                    next_best_offer_reason VARCHAR(250),
+                    raw_json TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    FOREIGN KEY(next_best_offer_product_id) REFERENCES card_products (id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO customer_360 (customer_id, account_number, customer_name, email_work, "
+                "next_best_offer_reason, created_at, updated_at) VALUES "
+                "(1, 'ACC101', 'VIPUL SINGH', 'work@email.com', 'HIGH FOREX', '2026-10-01', '2026-10-01')"
+            )
+        )
+
+    init_db(bind=engine)
+
+    columns = {col["name"] for col in inspect(engine).get_columns("customer_360")}
+    assert not {c for c in columns if c.startswith("next_best_offer")}
+    assert {"relationship_tier", "home_branch_name", "home_branch_address"} <= columns
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT customer_name, email_work, relationship_tier FROM customer_360")).one()
+    assert tuple(row) == ("VIPUL SINGH", "work@email.com", None)
+    assert "customer_360__old" not in inspect(engine).get_table_names()
+
+    init_db(bind=engine)  # idempotent: nothing left to drop

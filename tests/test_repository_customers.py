@@ -9,24 +9,11 @@ from api.repository.customers import (
     CustomerNotFoundError,
     InvalidDeliveryAddressTypeError,
     get_customer_by_account,
-    mask_email,
     update_customer_delivery_preference,
 )
 from db.models import Account, Base, Customer
 
 ACCOUNT_NUMBER = "8552"
-
-
-@pytest.mark.parametrize(
-    "email,expected",
-    [
-        ("rammehta@outlook.com", "ram*****@outlook.com"),
-        ("ab@example.com", "ab***@example.com"),
-        ("a@example.com", "a***@example.com"),
-    ],
-)
-def test_mask_email_keeps_domain_visible(email, expected):
-    assert mask_email(email) == expected
 
 
 @pytest.fixture

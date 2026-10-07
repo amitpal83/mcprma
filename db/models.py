@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -125,6 +126,9 @@ class CardProduct(Base):
     product_rewards_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     key_features: Mapped[str | None] = mapped_column(Text, nullable=True)
     eligibility_criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON-encoded list of {discount_type: [str], relationship_tier: int, value: str};
+    # decode/encode at the repository boundary like key_features.
+    relationship_discounts_appl: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
         return f"<CardProduct id={self.id} name={self.name!r} type={self.card_type}>"
@@ -214,7 +218,7 @@ class Customer(Base):
     registered_email: Mapped[str] = mapped_column(String(120), nullable=False)
     alt_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # Kept alongside registered_email/alt_email (which stay in sync with these
-    # for backward compatibility with mask_email/CustomerOut) so the source
+    # for backward compatibility with CustomerOut) so the source
     # json's own field names ("email_work"/"email_personal") are preserved too.
     email_work: Mapped[str | None] = mapped_column(String(120), nullable=True)
     email_personal: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -298,7 +302,8 @@ class ServiceRequest(Base):
 
 class Customer360(Base):
     """Denormalized customer-360 snapshot: identity, addresses, current
-    instruments, latest service request, and next-best-offer, in one place.
+    instruments, latest service request, relationship tier and home branch,
+    in one place.
 
     This is a seeded snapshot (no triggers/views exist in this codebase) --
     it is not kept live-synchronized with `Customer`/`Card`/`ServiceRequest`
@@ -315,14 +320,12 @@ class Customer360(Base):
     onboarding_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     email_work: Mapped[str | None] = mapped_column(String(120), nullable=True)
     email_personal: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    relationship_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1..3; drives card-product discounts
+    home_branch_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    home_branch_address: Mapped[str | None] = mapped_column(String(250), nullable=True)
     addresses_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_instruments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     latest_service_request_id: Mapped[int | None] = mapped_column(ForeignKey("service_requests.id"), nullable=True)
-    next_best_offer_product_external_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    next_best_offer_product_id: Mapped[int | None] = mapped_column(ForeignKey("card_products.id"), nullable=True)
-    next_best_offer_action_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    next_best_offer_applicable_discounts: Mapped[str | None] = mapped_column(String(250), nullable=True)
-    next_best_offer_reason: Mapped[str | None] = mapped_column(String(250), nullable=True)
     raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -330,7 +333,6 @@ class Customer360(Base):
     customer: Mapped[Customer] = relationship()
     account: Mapped[Account] = relationship()
     latest_service_request: Mapped[ServiceRequest | None] = relationship()
-    next_best_offer_product: Mapped[CardProduct | None] = relationship()
 
     def __repr__(self) -> str:
         return f"<Customer360 id={self.id} customer_id={self.customer_id} account={self.account_number}>"

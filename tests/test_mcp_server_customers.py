@@ -40,11 +40,11 @@ def seeded_session_factory(tmp_path):
     return factory
 
 
-def test_fetch_customer_by_account_masks_email(seeded_session_factory):
+def test_fetch_customer_by_account_returns_email(seeded_session_factory):
     row = fetch_customer_by_account(ACCOUNT_NUMBER, session_factory=seeded_session_factory)
     assert row["full_name"] == "Mr. Mehta"
-    assert row["registered_email_masked"] == "ram*****@gmail.com"
-    assert "registered_email" not in row
+    assert row["registered_email"] == "rammehta@gmail.com"
+    assert "registered_email_masked" not in row
 
 
 def test_fetch_customer_by_account_unknown_raises_tool_error(seeded_session_factory):
@@ -74,7 +74,7 @@ def test_mcp_tool_get_customer_profile_end_to_end(seeded_session_factory, monkey
     result = asyncio.run(mcp.call_tool("get_customer_profile", {"account_number": ACCOUNT_NUMBER}))
 
     assert result.is_error is False
-    assert result.structured_content["registered_email_masked"] == "ram*****@gmail.com"
+    assert result.structured_content["registered_email"] == "rammehta@gmail.com"
 
 
 def test_mcp_tool_get_customer_profile_unknown_account_raises_tool_error(seeded_session_factory, monkeypatch):

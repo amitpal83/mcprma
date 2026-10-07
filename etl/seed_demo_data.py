@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from api.repository.cards import (
     encode_eligibility_criteria,
     encode_key_features,
+    encode_relationship_discounts,
     encode_reward_transfer_partners,
 )
 from config.logging_config import configure_logging
@@ -93,18 +94,21 @@ _FX_RATES_INR = {
 _CUSTOMER_360_SOURCE_JSON: dict = {
     "customer_name": "VIPUL SINGH",
     "onboarding_date": "2023-01-15",
-    "email_work": "work@email.com",
-    "email_personal": "personal@email.com",
-    "address": [
+    "email_work": "Singh.Vipul@bcg.com",
+    "email_personal": "vipul.singh270@email.com",
+    "relationship_tier": 3,
+    "home_branch": {
+        "name": "HDFC Bank",
+        "address": "HDFC Bank, Sita commerical complex, Sector 120, 123 Main Street, New Delhi",
+    },
+    "addresses": [
         {
-            "address_type": "Bank Branch",
-            "address": "HDFC bank, VIPUL SINGH, 123 Main Street, New Delhi, India",
-            "preferred_flag": True,
+            "address_type": "Permanent",
+            "address": "Sector 120, 123 Main Street, New Delhi",
         },
         {
-            "address_type": "home",
-            "address": "Sector 12, Noida, Uttar Pradesh, India",
-            "preferred_flag": False,
+            "address_type": "Correspondence",
+            "address": "Sector 12, Noida, Uttar Pradesh",
         },
     ],
     "latest_service_requests": {
@@ -131,13 +135,14 @@ _CUSTOMER_360_SOURCE_JSON: dict = {
             "instrument_expiry": None,
         },
     ],
-    "next_best_offer": {
-        "recommended_product_id": "prod-2",
-        "action_type": "cross_sell",
-        "applicable_discounts": "25% on joining fee",
-        "reason": "HIGH FOREX Spending",
-    },
 }
+
+# Joining-fee discounts the Global Elite card offers, by customer relationship tier.
+_GLOBAL_ELITE_RELATIONSHIP_DISCOUNTS: list[dict] = [
+    {"discount_type": ["joining fees"], "relationship_tier": 1, "value": "10%"},
+    {"discount_type": ["joining fees"], "relationship_tier": 2, "value": "15%"},
+    {"discount_type": ["joining fees"], "relationship_tier": 3, "value": "25%"},
+]
 
 
 @dataclass
@@ -239,6 +244,7 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
             product_rewards_enabled=True,
             key_features=debit_key_features,
             eligibility_criteria=debit_eligibility,
+            relationship_discounts_appl=encode_relationship_discounts([]),
         )
         session.add(debit_product)
         session.flush()
@@ -250,6 +256,7 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
         debit_product.product_rewards_enabled = True
         debit_product.key_features = debit_key_features
         debit_product.eligibility_criteria = debit_eligibility
+        debit_product.relationship_discounts_appl = encode_relationship_discounts([])
         result.skipped += 1
 
     credit_product = (
@@ -265,7 +272,8 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
             "Comprehensive travel insurance coverage",
         ]
     )
-    credit_eligibility = encode_eligibility_criteria(["Minimum annual income of INR 25 lakhs"])
+    credit_eligibility = encode_eligibility_criteria(["Customer should be from a relationship tier of 2 or higher"])
+    credit_discounts = encode_relationship_discounts(_GLOBAL_ELITE_RELATIONSHIP_DISCOUNTS)
     if credit_product is None:
         credit_product = CardProduct(
             name="Global Elite zero forex markup credit card",
@@ -284,6 +292,7 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
             product_rewards_enabled=False,
             key_features=credit_key_features,
             eligibility_criteria=credit_eligibility,
+            relationship_discounts_appl=credit_discounts,
         )
         session.add(credit_product)
         session.flush()
@@ -298,6 +307,7 @@ def _seed_card_products(session: Session, result: SeedResult) -> tuple[CardProdu
         credit_product.product_rewards_enabled = False
         credit_product.key_features = credit_key_features
         credit_product.eligibility_criteria = credit_eligibility
+        credit_product.relationship_discounts_appl = credit_discounts
         result.skipped += 1
 
     return debit_product, credit_product
@@ -559,12 +569,10 @@ def _seed_customer_360(
     customer_id: int,
     account_number: str,
     service_request_id: int,
-    next_best_offer_product_id: int,
     result: SeedResult,
 ) -> Customer360:
     snapshot = session.query(Customer360).filter_by(customer_id=customer_id).first()
     source = _CUSTOMER_360_SOURCE_JSON
-    next_best_offer = source["next_best_offer"]
 
     if snapshot is not None:
         snapshot.account_number = account_number
@@ -572,14 +580,12 @@ def _seed_customer_360(
         snapshot.onboarding_date = date.fromisoformat(source["onboarding_date"])
         snapshot.email_work = source["email_work"]
         snapshot.email_personal = source["email_personal"]
-        snapshot.addresses_json = json.dumps(source["address"])
+        snapshot.relationship_tier = source["relationship_tier"]
+        snapshot.home_branch_name = source["home_branch"]["name"]
+        snapshot.home_branch_address = source["home_branch"]["address"]
+        snapshot.addresses_json = json.dumps(source["addresses"])
         snapshot.current_instruments_json = json.dumps(source["current_instruments"])
         snapshot.latest_service_request_id = service_request_id
-        snapshot.next_best_offer_product_external_id = next_best_offer["recommended_product_id"]
-        snapshot.next_best_offer_product_id = next_best_offer_product_id
-        snapshot.next_best_offer_action_type = next_best_offer["action_type"]
-        snapshot.next_best_offer_applicable_discounts = next_best_offer["applicable_discounts"]
-        snapshot.next_best_offer_reason = next_best_offer["reason"]
         snapshot.raw_json = json.dumps(source)
         result.skipped += 1
         return snapshot
@@ -591,14 +597,12 @@ def _seed_customer_360(
         onboarding_date=date.fromisoformat(source["onboarding_date"]),
         email_work=source["email_work"],
         email_personal=source["email_personal"],
-        addresses_json=json.dumps(source["address"]),
+        relationship_tier=source["relationship_tier"],
+        home_branch_name=source["home_branch"]["name"],
+        home_branch_address=source["home_branch"]["address"],
+        addresses_json=json.dumps(source["addresses"]),
         current_instruments_json=json.dumps(source["current_instruments"]),
         latest_service_request_id=service_request_id,
-        next_best_offer_product_external_id=next_best_offer["recommended_product_id"],
-        next_best_offer_product_id=next_best_offer_product_id,
-        next_best_offer_action_type=next_best_offer["action_type"],
-        next_best_offer_applicable_discounts=next_best_offer["applicable_discounts"],
-        next_best_offer_reason=next_best_offer["reason"],
         raw_json=json.dumps(source),
     )
     session.add(snapshot)
@@ -634,7 +638,7 @@ def seed_demo_data(
         customer = _seed_customer(session, account_number, result)
         _seed_transactions(session, account_number, card.id, result, resolved_as_of)
         service_request = _seed_service_request(session, customer.id, result)
-        _seed_customer_360(session, customer.id, account_number, service_request.id, credit_product.id, result)
+        _seed_customer_360(session, customer.id, account_number, service_request.id, result)
         _prune_stale_service_requests(session, customer.id, service_request.service_request_id, result)
 
         session.commit()

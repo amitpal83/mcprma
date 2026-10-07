@@ -133,7 +133,7 @@ def _seed_core_rows(session):
         account_number=account.account_number,
         customer_name="VIPUL SINGH",
         latest_service_request_id=service_request.id,
-        next_best_offer_product_id=card_product.id,
+        relationship_tier=3,
     )
     session.add(customer_360)
     session.commit()

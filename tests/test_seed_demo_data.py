@@ -7,6 +7,7 @@ real personal account, so this is doubly safe even against a real db.
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 
@@ -16,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.repository.cards import get_card_forex_summary
 from api.repository.merchants import resolve_merchant
-from db.models import Base, Card, Transaction
+from db.models import Base, Card, CardProduct, Customer360, Transaction
 from etl.seed_demo_data import DEFAULT_DEMO_ACCOUNT_NUMBER, WISDOM_PROPERTY_DESCRIPTOR, seed_demo_data
 
 AS_OF = date(2026, 9, 30)  # fixed anchor: matches the docx's "12 Aug" falling inside the trailing 365 days
@@ -88,3 +89,24 @@ def test_forex_summary_reflects_merged_transaction_history(session_factory):
         assert summary.total_forex_spend_inr == Decimal("511801.52")
         assert summary.total_markup_amount == Decimal("17913.02")
         assert summary.transaction_count == 253
+
+
+def test_seed_populates_relationship_tier_discounts_and_customer_360(session_factory):
+    seed_demo_data(session_factory=session_factory, as_of=AS_OF)
+
+    with session_factory() as session:
+        credit = session.query(CardProduct).filter_by(external_product_id="prod-2").one()
+        debit = session.query(CardProduct).filter_by(external_product_id="prod-1").one()
+        snapshot = session.query(Customer360).one()
+
+    assert json.loads(credit.relationship_discounts_appl) == [
+        {"discount_type": ["joining fees"], "relationship_tier": 1, "value": "10%"},
+        {"discount_type": ["joining fees"], "relationship_tier": 2, "value": "15%"},
+        {"discount_type": ["joining fees"], "relationship_tier": 3, "value": "25%"},
+    ]
+    assert json.loads(credit.eligibility_criteria) == ["Customer should be from a relationship tier of 2 or higher"]
+    assert debit.relationship_discounts_appl is None
+    assert snapshot.relationship_tier == 3
+    assert snapshot.home_branch_name == "HDFC Bank"
+    assert snapshot.email_work == "Singh.Vipul@bcg.com"
+    assert [a["address_type"] for a in json.loads(snapshot.addresses_json)] == ["Permanent", "Correspondence"]

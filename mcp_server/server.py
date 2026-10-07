@@ -248,9 +248,9 @@ def list_card_products(card_type: str | None = None, active_only: bool = True) -
         card_type, forex_markup_pct, forex_enabled (whether it carries forex
         markup at all), joining_fee, annual_fee,
         lounge_visits_domestic_per_year / lounge_visits_international_per_year,
-        product_rewards_enabled, reward_transfer_partners (list of loyalty
-        programs, [] if none), key_features (list of marketing bullet
-        points), eligibility_criteria (list of requirements to qualify).
+        product_rewards_enabled, reward_transfer_partners , key_features (list of marketing bullet
+        points), relationship_discounts_appl , relationship_tier , eligibility_criteria (list of requirements to
+        qualify, free text).
     """
     logger.info("MCP tool call: list_card_products(%s, %s)", card_type, active_only)
     return {"result": fetch_card_products(card_type, active_only)}
@@ -325,8 +325,8 @@ def search_account_transactions(
         oldest-first, each with: id, account_number, txn_date,
         merchant (raw statement merchant text), reference_no,
         txn_amount_INR , card_id, card_type, 
-        txn_currency, category, parent_entity (the parent
-        brand/property behind the merchant, e.g. the hotel group),
+        txn_currency, category, parent_entity (the outlet
+        or property behind the merchant, e.g. the hotel "The Oberoi"),
         instrument_mode (the payment instrument used, e.g.
         "card-last4digits-4881"),
         transaction_type ("domestic" or "international"),
@@ -527,8 +527,8 @@ def get_customer_profile(account_number: str) -> dict[str, Any]:
 
     Returns:
         A customer object: id ,
-        registered_email_masked , alt_email_masked, email_work_masked
-        email_personal_masked , onboarding_date, delivery_address_office, delivery_address_home,
+        registered_email, alt_email, email_work,
+        email_personal, onboarding_date, delivery_address_office, delivery_address_home,
         preferred_delivery_address_type ("OFFICE" or "HOME"), updated_at.
 
     Raises:
@@ -551,27 +551,19 @@ def fetch_customer_360(account_number: str, session_factory: sessionmaker | None
 
 @mcp.tool()
 def get_customer_360(account_number: str) -> dict[str, Any]:
-    """Get an account's full customer-360 snapshot: identity, every known
-    address, every current banking instrument, and the standing next-best-offer.
+    """Get an account's full customer-360 snapshot: identity, relationship
+    tier, home branch,  address, banking instrument.
 
-    This is a denormalized, point-in-time snapshot (not a live view) built
-    from the customer's own profile 
-
+    
     Args:
         account_number: The account number to look up, e.g. "8552".
 
     Returns:
-        A snapshot object: id, customer_id, account_number, customer_name,
-        onboarding_date, email_work_masked / email_personal_masked (masked
-        the same way as get_customer_profile), addresses (list of
-        {address_type, address, preferred_flag}, e.g. "Bank Branch"/"home"),
-        current_instruments (list of {instrument_type, instrument_name,
-        instrument_identifier, instrument_expiry, instrument_last_kyc} --
-        e.g. the customer's debit card and savings account), next_best_offer
-        ({recommended_product_id (a catalogue external_product_id, e.g.
-        "prod-2"), action_type (e.g. "cross_sell"), applicable_discounts
-        (e.g. "25% on joining fee"), reason (e.g. "HIGH FOREX Spending")}),
-        updated_at.
+        A Customer360 object: id, customer_id, account_number, customer_name,
+        onboarding_date, email_work, email_personal, relationship_tier , home_branch ({name, address}), addresses (list of
+        {address_type, address}, e.g. "Permanent"/"Correspondence"),
+        current_instruments 
+        e.g. the customer's debit card and savings account), updated_at.
 
     Raises:
         ToolError: account_number has no customer-360 snapshot.
@@ -681,12 +673,9 @@ def get_account_recommendation(account_number: str) -> dict[str, Any]:
     """Recommend a lower-forex-markup card upgrade for an account and project the annual savings.
 
     Resolves the account's card internally (its earliest-issued card, same
-    one next_best_offer in get_customer_360 is scoped to -- next-best-offer
-    is inherently a customer/account-level concept, not a per-card one).
-    This is a live computation (recomputed from that card's own trailing
-    365-day forex history every call), not the stored snapshot in
-    get_customer_360's next_best_offer -- the two should normally agree but
-    this one is always current. The candidate is the active credit product
+    one the account's forex history is scoped to). This is a live computation
+    (recomputed from that card's own trailing 365-day forex history every
+    call). The candidate is the active credit product
     in the catalogue with the lowest forex_markup_pct strictly below the
     resolved card's own product (tie-broken by lowest annual_fee); if none
     beats it, there's nothing to recommend.

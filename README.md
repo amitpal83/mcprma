@@ -83,7 +83,7 @@ C:\RMA\
       transactions.py            # getAccountTxnDetails (Chapter 1)
       merchants.py                # resolve_merchant (Step 2)
       cards.py                    # catalogue, search, forex summary, category, recommendation (Steps 3/4/7)
-      customers.py                 # profile, mask_email, delivery preference (Step 5)
+      customers.py                 # profile, delivery preference (Step 5)
       disputes.py                  # dispute lifecycle (Step 6)
       applications.py              # card application lifecycle (Step 8)
     dependencies.py             # FastAPI get_db() session dependency
@@ -114,9 +114,8 @@ C:\RMA\
 - **`api/repository/` is a package, split by domain** — ~20 functions across
   7+ tables would make one file unwieldy; `__init__.py` re-exports so no
   caller's import needed to change.
-- **PII masking lives in the schema layer**, not the repository — repository
-  returns the full ORM row (so any future internal-only consumer still has
-  it); `CustomerOut` computes masked fields and never exposes the raw ones.
+- **Emails are returned unmasked** by `CustomerOut` and `Customer360Out`
+  (masking was removed deliberately; access is gated by the bearer token).
 - **Merchant resolution is deterministic** (exact alias match, then
   `difflib` fuzzy fallback) — no external enrichment vendor, appropriate for
   a demo dataset built from a fixed script.

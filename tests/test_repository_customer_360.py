@@ -49,13 +49,11 @@ def seeded_session_factory(session_factory):
                 onboarding_date=date(2023, 1, 15),
                 email_work="work@email.com",
                 email_personal="personal@email.com",
-                addresses_json=json.dumps([{"address_type": "home", "address": "Noida", "preferred_flag": False}]),
+                addresses_json=json.dumps([{"address_type": "Correspondence", "address": "Noida"}]),
                 current_instruments_json=json.dumps([{"instrument_type": "debit_card"}]),
-                next_best_offer_product_external_id="prod-2",
-                next_best_offer_product_id=credit_product.id,
-                next_best_offer_action_type="cross_sell",
-                next_best_offer_applicable_discounts="25% on joining fee",
-                next_best_offer_reason="HIGH FOREX Spending",
+                relationship_tier=3,
+                home_branch_name="HDFC Bank",
+                home_branch_address="Sita commercial complex, New Delhi",
                 raw_json=json.dumps({"customer_name": "VIPUL SINGH"}),
             )
         )
@@ -68,9 +66,8 @@ def test_get_customer_360_returns_snapshot(seeded_session_factory):
     with seeded_session_factory() as session:
         snapshot = get_customer_360(session, ACCOUNT_NUMBER)
         assert snapshot.customer_name == "VIPUL SINGH"
-        assert snapshot.next_best_offer_product_external_id == "prod-2"
-        assert snapshot.next_best_offer_action_type == "cross_sell"
-        assert snapshot.next_best_offer_reason == "HIGH FOREX Spending"
+        assert snapshot.relationship_tier == 3
+        assert snapshot.home_branch_name == "HDFC Bank"
         assert json.loads(snapshot.addresses_json)[0]["address"] == "Noida"
 
 

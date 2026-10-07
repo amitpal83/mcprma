@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from api.dependencies import get_db
 from api.main import app
-from api.repository.cards import encode_reward_transfer_partners
+from api.repository.cards import encode_relationship_discounts, encode_reward_transfer_partners
 from db.models import Account, Base, Card, CardProduct
 
 ACCOUNT_NUMBER = "8552"
@@ -32,6 +32,9 @@ def client(tmp_path):
             card_type="credit",
             forex_markup_pct=0,
             reward_transfer_partners=encode_reward_transfer_partners(["Flying Blue"]),
+            relationship_discounts_appl=encode_relationship_discounts(
+                [{"discount_type": ["joining fees"], "relationship_tier": 3, "value": "25%"}]
+            ),
         )
         session.add_all([debit_product, credit_product])
         session.flush()
@@ -114,6 +117,16 @@ def test_list_card_products_filters_by_type(client):
     assert len(body) == 1
     assert body[0]["name"] == "Global Elite Zero Forex Card"
     assert body[0]["reward_transfer_partners"] == ["Flying Blue"]
+    assert body[0]["relationship_discounts_appl"] == [
+        {"discount_type": ["joining fees"], "relationship_tier": 3, "value": "25%"}
+    ]
+
+
+def test_card_product_without_discounts_returns_empty_list(client):
+    test_client, _, _ = client
+    body = test_client.get("/card-products", params={"card_type": "debit"}).json()
+
+    assert body[0]["relationship_discounts_appl"] == []
 
 
 def test_get_card_product(client):

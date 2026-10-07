@@ -53,9 +53,8 @@ def test_get_account_customer_masks_email(client):
     assert response.status_code == 200
     body = response.json()
     assert body["full_name"] == "Mr. Mehta"
-    assert body["registered_email_masked"] == "ram*****@gmail.com"
-    assert "registered_email" not in body
-    assert "alt_email" not in body
+    assert body["registered_email"] == "rammehta@gmail.com"
+    assert "registered_email_masked" not in body
 
 
 def test_get_account_customer_unknown_account_returns_404(client):

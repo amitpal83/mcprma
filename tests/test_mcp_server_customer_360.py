@@ -59,13 +59,11 @@ def seeded_session_factory(tmp_path):
                 onboarding_date=date(2023, 1, 15),
                 email_work="work@email.com",
                 email_personal="personal@email.com",
-                addresses_json=json.dumps([{"address_type": "home", "address": "Noida", "preferred_flag": False}]),
+                addresses_json=json.dumps([{"address_type": "Correspondence", "address": "Noida"}]),
                 current_instruments_json=json.dumps([{"instrument_type": "debit_card"}]),
-                next_best_offer_product_external_id="prod-2",
-                next_best_offer_product_id=credit_product.id,
-                next_best_offer_action_type="cross_sell",
-                next_best_offer_applicable_discounts="25% on joining fee",
-                next_best_offer_reason="HIGH FOREX Spending",
+                relationship_tier=3,
+                home_branch_name="HDFC Bank",
+                home_branch_address="Sita commercial complex, New Delhi",
                 raw_json=json.dumps({"customer_name": "VIPUL SINGH"}),
             )
         )
@@ -77,8 +75,10 @@ def seeded_session_factory(tmp_path):
 def test_fetch_customer_360(seeded_session_factory):
     row = fetch_customer_360(ACCOUNT_NUMBER, session_factory=seeded_session_factory)
     assert row["customer_name"] == "VIPUL SINGH"
-    assert row["next_best_offer"]["recommended_product_id"] == "prod-2"
-    assert row["next_best_offer"]["reason"] == "HIGH FOREX Spending"
+    assert "next_best_offer" not in row
+    assert row["relationship_tier"] == 3
+    assert row["home_branch"]["name"] == "HDFC Bank"
+    assert row["email_work"] == "work@email.com"
 
 
 def test_fetch_customer_360_unknown_account_raises_tool_error(seeded_session_factory):

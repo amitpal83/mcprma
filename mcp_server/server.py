@@ -176,11 +176,10 @@ def get_account_txn_details(account_number: str, from_date: str, to_date: str) -
         {"result": [...]} -- a list of transaction objects ordered
         oldest-first, each with: id, account_number, txn_date,
         merchant (raw statement merchant text), reference_no,
-        txn_amount_INR (INR-settled amount), card_id, card_type (always
-        "debit" -- this table only ever holds debit-card spend),
-        txn_currency (never null; "INR" for domestic spend), category,
-        and a set of forex fields -- txn_amount (original foreign-currency
-        amount), exchange_rate, forex_markup_amount_INR 
+        txn_amount_INR , card_id, card_type ,
+        txn_currency , category, parent_entity, instrument_mode,
+        transaction_type ("domestic" or "international"),
+        and a set of forex fields -- txn_amount, exchange_rate, forex_markup_amount_INR 
         `result` is `[]`, not an error, when nothing matches.
 
     Raises:
@@ -325,8 +324,12 @@ def search_account_transactions(
         a list of transaction objects ordered
         oldest-first, each with: id, account_number, txn_date,
         merchant (raw statement merchant text), reference_no,
-        txn_amount_INR (INR-settled amount), card_id, card_type, 
-        txn_currency, category,
+        txn_amount_INR , card_id, card_type, 
+        txn_currency, category, parent_entity (the parent
+        brand/property behind the merchant, e.g. the hotel group),
+        instrument_mode (the payment instrument used, e.g.
+        "card-last4digits-4881"),
+        transaction_type ("domestic" or "international"),
         and a set of forex fields like foreign-currency
         amount, exchange_rate, forex_markup_amount_INR 
         `result` is `[]`, not an error, when nothing
@@ -392,9 +395,7 @@ def fetch_account_forex_summary(
 def get_account_forex_summary(account_number: str, as_of_date: str | None = None) -> dict[str, Any]:
     """Summarize an account's foreign-currency spend over the trailing 365 days ending as_of_date.
 
-    Aggregates across every card linked to the account. Only counts
-    transactions with a non-"INR" txn_currency -- domestic spend is
-    excluded entirely.
+    Aggregates across every card linked to the account.
 
     Args:
         account_number: The account number to look up, e.g. "8552".
@@ -404,8 +405,7 @@ def get_account_forex_summary(account_number: str, as_of_date: str | None = None
 
     Returns:
         A summary object: account_number, from_date/to_date (the actual
-        window used), total_forex_spend_inr (sum of INR-settled amounts
-        across all cards), total_markup_amount, transaction_count. All
+        window used), total_forex_spend_inr , total_markup_amount, transaction_count. All
         zero if the account has no cards.
 
     Raises:
@@ -469,13 +469,10 @@ def get_account_category_breakdown(
     transaction_type: str,
     category: str | None = None,
 ) -> dict[str, Any]:
-    """Aggregate an account's spend (and forex markup) by date range, required transaction_type, and optional category.
+    """Aggregate an account's spend (and forex markup) by date range,  transaction_type (domestic/international) , and  category.
 
-    Aggregates across every card linked to the account. Unlike a
-    category-by-category breakdown, this always returns a single aggregate
-    for whatever filters were given -- pass category to scope to one (e.g.
-    "Hotel", "Groceries", "Dining", "Travel", "Shopping", "Utilities", or
-    any other value present in the data), or omit it for the total across
+    Aggregates across every card linked to the account. Returns a single aggregate
+    for whatever filters were given  or omit category for the total across
     all categories within transaction_type.
 
     Args:

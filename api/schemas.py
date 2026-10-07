@@ -36,6 +36,9 @@ class TransactionOut(BaseModel):
     exchange_rate: Decimal | None = None
     forex_markup_amount_INR: Decimal | None = None
     category: str | None = None
+    parent_entity: str | None = None
+    instrument_mode: str | None = None
+    transaction_type: str | None = None
 
 
 class ForexSummaryOut(BaseModel):

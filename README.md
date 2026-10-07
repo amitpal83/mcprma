@@ -56,7 +56,16 @@ video-call assistant.
 `get_transaction_category_analysis`, `get_customer_profile`, `get_customer_360`,
 `get_latest_service_request`, `update_customer_delivery_preference`,
 `create_dispute`, `withdraw_dispute`, `get_account_recommendation`,
-`create_card_application`, `get_card_application_status`.
+`create_card_application`, `get_card_application_status`,
+`send_card_offer_email`.
+
+`send_card_offer_email(account_number, card_product_id, personal_note=None)`
+emails the customer (their `customer_360` work email, else personal) the card's
+benefits, fees, eligibility and tier discount, with `brochure/card.pdf`
+attached. **It sends immediately -- there is no preview or approval step.**
+Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`
+in `.env` (see `deploy/env.template`); set `MAIL_REDIRECT_TO` to send every
+email to one address while testing.
 
 
 

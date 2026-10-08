@@ -57,7 +57,7 @@ def fake_mail(monkeypatch, tmp_path):
     monkeypatch.setattr(offer_email.smtplib, "SMTP", FakeSMTP)
     pdf = tmp_path / "card.pdf"
     pdf.write_bytes(b"%PDF-1.4 test brochure")
-    monkeypatch.setattr(offer_email, "BROCHURE_PATH", pdf)
+    monkeypatch.setattr(offer_email, "BROCHURE_DIR", tmp_path)
     for name, value in {
         "SMTP_HOST": "smtp.test",
         "SMTP_PORT": "587",
@@ -194,7 +194,7 @@ def test_no_email_on_file_raises(tmp_path):
 
 
 def test_missing_pdf_raises_and_sends_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr(offer_email, "BROCHURE_PATH", tmp_path / "missing.pdf")
+    monkeypatch.setattr(offer_email, "BROCHURE_DIR", tmp_path / "nowhere")
     factory = _make_factory(tmp_path)
     with pytest.raises(ToolError, match="brochure"):
         fetch_send_card_offer_email(ACCOUNT_NUMBER, 1, session_factory=factory)
@@ -220,3 +220,11 @@ def test_tool_is_registered_and_warns_it_sends_immediately():
     tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
     assert "send_card_offer_email" in tools
     assert "IMMEDIATELY" in tools["send_card_offer_email"].description
+
+
+def test_product_without_a_brochure_raises_and_sends_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(offer_email, "BROCHURE_BY_PRODUCT", {})
+    factory = _make_factory(tmp_path)
+    with pytest.raises(ToolError, match="No brochure"):
+        fetch_send_card_offer_email(ACCOUNT_NUMBER, 1, session_factory=factory)
+    assert FakeSMTP.sent == []

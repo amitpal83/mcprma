@@ -1,7 +1,6 @@
-"""Builds and sends the card-offer email: plain text, one PDF attachment, SMTP.
+"""Builds and sends the card-offer email.
 
-Deliberately simple -- no templates, no drafts. send_card_offer() builds the
-message and sends it immediately.
+
 
 Config is read from the environment at send time:
   SMTP_HOST, MAIL_FROM            required
@@ -23,7 +22,14 @@ from api.schemas import CardProductOut
 
 logger = logging.getLogger(__name__)
 
-BROCHURE_PATH = Path(__file__).resolve().parent.parent / "brochure" / "card.pdf"
+BROCHURE_DIR = Path(__file__).resolve().parent.parent / "brochure"
+
+# Brochure file per product, keyed by the catalogue's external_product_id. A
+# product with no entry here has no brochure -- the email is refused rather
+# than sent with another product's PDF.
+BROCHURE_BY_PRODUCT = {
+    "prod-2": "card.pdf",  # Global Elite zero forex markup credit card
+}
 
 
 class OfferEmailError(Exception):
@@ -104,13 +110,16 @@ def build_message(
     return message
 
 
-def _attach_brochure(message: EmailMessage) -> str:
+def _attach_brochure(message: EmailMessage, product: CardProductOut) -> str:
+    filename = BROCHURE_BY_PRODUCT.get(product.external_product_id or "")
+    if filename is None:
+        raise OfferEmailError(f"No brochure is available for card product {product.id} ({product.name})")
     try:
-        data = BROCHURE_PATH.read_bytes()
+        data = (BROCHURE_DIR / filename).read_bytes()
     except OSError as exc:
-        raise OfferEmailError(f"Product brochure not available: {BROCHURE_PATH.name}") from exc
-    message.add_attachment(data, maintype="application", subtype="pdf", filename=BROCHURE_PATH.name)
-    return BROCHURE_PATH.name
+        raise OfferEmailError(f"Product brochure not available: {filename}") from exc
+    message.add_attachment(data, maintype="application", subtype="pdf", filename=filename)
+    return filename
 
 
 def send_message(message: EmailMessage) -> str:
@@ -150,7 +159,7 @@ def send_card_offer(
     personal_note: str | None = None,
 ) -> dict:
     message = build_message(customer_name, tier, recipient, product, personal_note)
-    attachment = _attach_brochure(message)
+    attachment = _attach_brochure(message, product)
     subject = message["Subject"]
     sent_to = send_message(message)
     logger.info("Offer email sent: product_id=%s tier=%s", product.id, tier)

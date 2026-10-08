@@ -796,7 +796,8 @@ def send_card_offer_email(
 ) -> dict[str, Any]:
     """Email a card offer, with the product brochure attached, to the customer.
 
-    
+    This sends the email IMMEDIATELY -- there is no preview or approval step,
+    so only call it when the RM has asked for the offer to go out.
 
     The recipient is the customer's own address on file (work email, else
     personal) -- it cannot be chosen by the caller. The email lists the

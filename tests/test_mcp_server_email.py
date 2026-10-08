@@ -219,7 +219,7 @@ def test_smtp_failure_raises_tool_error(tmp_path):
 def test_tool_is_registered_and_warns_it_sends_immediately():
     tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
     assert "send_card_offer_email" in tools
-    assert "IMMEDIATELY" in tools["send_card_offer_email"].description
+    assert "no preview or approval step" in tools["send_card_offer_email"].description
 
 
 def test_product_without_a_brochure_raises_and_sends_nothing(tmp_path, monkeypatch):

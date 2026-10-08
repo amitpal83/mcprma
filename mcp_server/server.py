@@ -765,23 +765,15 @@ def fetch_send_card_offer_email(
 def send_card_offer_email(
     account_number: str, card_product_id: int, personal_note: str | None = None
 ) -> dict[str, Any]:
-    """Email a card offer, with the product brochure attached, to the customer.
+    """Email a card offer to the customer.
 
-    This sends the email IMMEDIATELY -- there is no preview or approval step,
-    so only call it when the RM has asked for the offer to go out.
-
-    The recipient is the customer's own address on file (work email, else
-    personal) -- it cannot be chosen by the caller. The email lists the
-    product's key benefits, joining and annual fee, forex markup and
-    eligibility, plus the customer's discount for that
-    product .
+    This sends the email and there is no preview or approval step,
+   
 
     Args:
         account_number: The account number, e.g. "ACC101".
-        card_product_id: The card product to offer, e.g. 2. Get this from
-            list_card_products.
-        personal_note: Optional short plain-text line from the RM, placed at
-            the top of the email.
+        card_product_id: The card product to offer
+        personal_note: Optional short plain-text line from the RM.
 
     Returns:
         status ("SENT"), sent_to (the address it was delivered to), subject,
@@ -826,18 +818,24 @@ def build_asgi_app() -> ASGIApp:
 def main() -> None:
     import uvicorn
 
-    from etl.seed_demo_data import seed_demo_data
-
     init_db()
-    seed_result = seed_demo_data()
-    logger.info(
-        "Demo data reconciled: transactions_inserted=%s transactions_pruned=%s "
-        "service_requests_pruned=%s skipped=%s",
-        seed_result.transactions_inserted,
-        seed_result.transactions_pruned,
-        seed_result.service_requests_pruned,
-        seed_result.skipped,
-    )
+    # Seeding overwrites customer_360 and prunes rows, so it is off by default:
+    # a deploy/restart must not touch existing data. Set RMA_SEED_ON_START=1 to
+    # seed a fresh database (or run `python -m etl.seed_demo_data` by hand).
+    if os.environ.get("RMA_SEED_ON_START", "").lower() in ("1", "true", "yes"):
+        from etl.seed_demo_data import seed_demo_data
+
+        seed_result = seed_demo_data()
+        logger.info(
+            "Demo data reconciled: transactions_inserted=%s transactions_pruned=%s "
+            "service_requests_pruned=%s skipped=%s",
+            seed_result.transactions_inserted,
+            seed_result.transactions_pruned,
+            seed_result.service_requests_pruned,
+            seed_result.skipped,
+        )
+    else:
+        logger.info("Skipping demo-data seeding (set RMA_SEED_ON_START=1 to enable)")
     logger.info("Starting MCP server (Streamable HTTP transport) on %s:%s", DEFAULT_HOST, DEFAULT_PORT)
     config = uvicorn.Config(build_asgi_app(), host=DEFAULT_HOST, port=DEFAULT_PORT, log_level="info")
     uvicorn.Server(config).run()

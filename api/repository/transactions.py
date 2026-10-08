@@ -1,8 +1,5 @@
 """Core query logic for account transaction lookups.
 
-Framework-agnostic on purpose: both the FastAPI layer (api/main.py) and the
-future MCP server (Step 3) call get_account_txn_details() directly, so the
-query logic and its validation rules live in exactly one place.
 """
 from __future__ import annotations
 

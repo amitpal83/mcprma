@@ -1,11 +1,9 @@
 """SQLAlchemy ORM models for the account statement database.
 
 Two tables:
-  accounts     - one row per bank account (keyed by account_number).
-  transactions - one row per statement line, FK'd to accounts.
+  accounts     
+  transactions 
 
-Money columns use Numeric (fixed-point), never Float, to avoid rounding
-drift on currency values.
 """
 from __future__ import annotations
 

@@ -68,6 +68,7 @@ from api.schemas import (
 )
 from config.logging_config import configure_logging
 from db.session import SessionLocal, init_db
+from mcp_server.offer_email import OfferEmailError, send_card_offer
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -726,6 +727,74 @@ def create_card_application(
         customer_id, card_product_id, delivery_address,
     )
     return fetch_create_card_application(customer_id, card_product_id, delivery_address)
+
+
+def fetch_send_card_offer_email(
+    account_number: str,
+    card_product_id: int,
+    personal_note: str | None = None,
+    session_factory: sessionmaker | None = None,
+) -> dict[str, Any]:
+    factory = session_factory or SessionLocal
+    with factory() as session:
+        try:
+            snapshot = query_get_customer_360(session, account_number)
+            product = query_get_card_product(session, card_product_id)
+        except (Customer360NotFoundError, CardProductNotFoundError) as exc:
+            raise ToolError(str(exc)) from exc
+
+        if not product.is_active:
+            raise ToolError(f"Card product {card_product_id} is not currently offered")
+        recipient = snapshot.email_work or snapshot.email_personal
+        if not recipient:
+            raise ToolError(f"No email address on file for account {account_number}")
+
+        try:
+            return send_card_offer(
+                customer_name=snapshot.customer_name,
+                tier=snapshot.relationship_tier,
+                recipient=recipient,
+                product=CardProductOut.model_validate(product),
+                personal_note=personal_note,
+            )
+        except OfferEmailError as exc:
+            raise ToolError(str(exc)) from exc
+
+
+@mcp.tool()
+def send_card_offer_email(
+    account_number: str, card_product_id: int, personal_note: str | None = None
+) -> dict[str, Any]:
+    """Email a card offer, with the product brochure attached, to the customer.
+
+    This sends the email IMMEDIATELY -- there is no preview or approval step,
+    so only call it when the RM has asked for the offer to go out.
+
+    The recipient is the customer's own address on file (work email, else
+    personal) -- it cannot be chosen by the caller. The email lists the
+    product's key benefits, joining and annual fee, forex markup and
+    eligibility, plus the customer's discount for that
+    product .
+
+    Args:
+        account_number: The account number, e.g. "ACC101".
+        card_product_id: The card product to offer, e.g. 2. Get this from
+            list_card_products.
+        personal_note: Optional short plain-text line from the RM, placed at
+            the top of the email.
+
+    Returns:
+        status ("SENT"), sent_to (the address it was delivered to), subject,
+        card_product_id, attachment (the PDF file name), discount_applied.
+
+    Raises:
+        ToolError: the account has no customer-360 snapshot or no email
+            address; the card product doesn't exist or isn't offered; the
+            brochure PDF is missing; email isn't configured on the server;
+            or sending failed.
+    """
+    logger.info("MCP tool call: send_card_offer_email(%s, %s)", account_number, card_product_id)
+    return fetch_send_card_offer_email(account_number, card_product_id, personal_note)
 
 
 def build_asgi_app() -> ASGIApp:

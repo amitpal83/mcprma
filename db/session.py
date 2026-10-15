@@ -24,19 +24,7 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db(bind=None) -> None:
     """Create all tables if they do not already exist, then add any columns
-    a model declares that an already-existing table doesn't have yet.
-
-    There is no migration tool in this project (no Alembic) --
-    Base.metadata.create_all() alone only creates missing tables, it never
-    alters one that already exists. _add_missing_columns() fills that gap
-    for the common case (a new nullable column added to an existing model)
-    by diffing declared vs. actual columns and issuing ALTER TABLE ADD
-    COLUMN for anything missing. Safe to call repeatedly -- once a column
-    exists this is a no-op. Additive changes are automatic; removals only for
-    columns listed in OBSOLETE_COLUMNS (see _drop_obsolete_columns). A NOT NULL
-    column with no default or a rename still needs a real migration tool.
-
-    bind defaults to the module-level engine; tests inject a throwaway one.
+    
     """
     target_engine = bind or engine
     Base.metadata.create_all(bind=target_engine)
@@ -45,8 +33,6 @@ def init_db(bind=None) -> None:
 
 
 # Columns removed from a model that must also disappear from databases created
-# before the removal. An explicit list (rather than "anything the model doesn't
-# declare") so init_db never drops a column it wasn't told about.
 OBSOLETE_COLUMNS: dict[str, frozenset[str]] = {
     "customer_360": frozenset(
         {
@@ -63,20 +49,7 @@ OBSOLETE_COLUMNS: dict[str, frozenset[str]] = {
 def _drop_obsolete_columns(bind) -> None:
     """Remove columns listed in OBSOLETE_COLUMNS from tables that still have them.
 
-    ALTER TABLE DROP COLUMN can't be used here: SQLite refuses to drop a column
-    that is part of a FOREIGN KEY (next_best_offer_product_id is). So the table
-    is rebuilt instead -- renamed aside, recreated from the model, data copied
-    across for every column both versions share, old table dropped.
-
-    The rebuild runs inside one explicit BEGIN IMMEDIATE transaction on a raw
-    sqlite3 connection (pysqlite's implicit transactions don't cover DDL), so
-    it is all-or-nothing, and the API and MCP services -- which both call
-    init_db on startup -- can't interleave: the second one waits for the write
-    lock, re-reads the columns, and finds nothing left to do. Safe to call
-    repeatedly (no-op once the columns are gone).
-
-    Only handles tables with no named indexes (customer_360 has none); extend
-    it before listing a table that has any.
+   
     """
     for table in Base.metadata.sorted_tables:
         stale_names = OBSOLETE_COLUMNS.get(table.name)

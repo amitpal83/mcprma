@@ -187,8 +187,7 @@ def search_card_transactions(
     transaction they're thinking of was in.
 
     merchant_text is a case-insensitive substring match against the raw
-    merchant text (e.g. "Wisdom Property" matches "WISDOM PROPERTY NL II").
-
+   
     Raises:
         CardNotFoundError: if card_id doesn't exist.
         InvalidDateRangeError: if from_date is after to_date.

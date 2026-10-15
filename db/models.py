@@ -48,11 +48,7 @@ class Account(Base):
 class Transaction(Base):
     """A statement line.
 
-    Two kinds of rows share this table: plain bank-narration transactions
-    (UPI/IMPS/ACH, `card_id` NULL) and debit-card transactions (`card_id` set,
-    plus the forex/merchant columns populated when applicable) -- a credit
-    card, which settles separately rather than hitting this account
-    directly, never gets rows here (see `CardApplication` instead).
+    
     """
 
     __tablename__ = "transactions"
@@ -96,11 +92,9 @@ class Transaction(Base):
 
 
 class CardProduct(Base):
-    """Card catalogue entry (one row per product, e.g. 'Global Elite zero forex markup credit card').
+    """Card catalogue entry 
 
-    Shared by debit and credit products. `reward_transfer_partners` is stored
-    as a JSON-encoded string (SQLite has no native JSON type) — decode/encode
-    at the repository boundary so callers only ever see a `list[str]`.
+    Shared by debit and credit products. 
     """
 
     __tablename__ = "card_products"
@@ -135,9 +129,7 @@ class CardProduct(Base):
 class Card(Base):
     """An issued card instance linked to an account.
 
-    Only debit cards get transaction history in this system (see
-    `Transaction.card_id`) — credit cards are represented purely via
-    `CardApplication` until/unless a future step needs their own ledger.
+   
     """
 
     __tablename__ = "cards"

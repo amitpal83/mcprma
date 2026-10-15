@@ -341,6 +341,13 @@ def search_account_transactions(
         "MCP tool call: search_account_transactions(%s, %s, %s, %s, %s, %r)",
         account_number, from_date, to_date, amount_min, amount_max, merchant_text,
     )
+    if amount_min is not None and amount_max is not None:
+        parsed_min = _parse_decimal(amount_min, "amount_min")
+        parsed_max = _parse_decimal(amount_max, "amount_max")
+        if parsed_min == parsed_max:
+            # Exact amount given: widen to a +/-10% band around it.
+            amount_min = str(parsed_min * Decimal("0.90"))
+            amount_max = str(parsed_min * Decimal("1.10"))
     return {
         "result": fetch_account_card_transactions(
             account_number, from_date, to_date, amount_min, amount_max, merchant_text

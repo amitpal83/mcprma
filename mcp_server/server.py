@@ -306,12 +306,12 @@ def search_account_transactions(
     amount_max: str | None = None,
     merchant_text: str | None = None,
 ) -> dict[str, Any]:
-    """Search an account's card transactions by date range, optional amount range, and merchant text.
+    """Search an account's  transactions by date range, optional amount range, and merchant text.
 
     Searches across every card linked to the account 
 
     Args:
-        account_number: The account number to look up, e.g. "8552".
+        account_number: The account number to look up, e.g. "ACC101".
         from_date: Start of the range (inclusive), ISO format "YYYY-MM-DD".
         to_date: End of the range (inclusive), ISO format "YYYY-MM-DD".
         amount_min: Optional minimum amount, as a decimal string, e.g. "340"
